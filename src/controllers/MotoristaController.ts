@@ -29,6 +29,7 @@ const MOTORISTA_FIELDS = [
   'receita_gerada',
   'viagens_realizadas',
   'caminhao_atual',
+  'placa_temporaria',
 ];
 
 export class MotoristaController {
@@ -84,6 +85,8 @@ export class MotoristaController {
       const cnhLimpa = payload.cnh.replace(/\D/g, '');
       const telefoneLimpo = payload.telefone.replace(/\D/g, '');
       const chavePixLimpa = payload.chave_pix ? payload.chave_pix.replace(/\D/g, '') : null;
+      const rawPlaca = payload.placa_temporaria || null;
+      const placaSanitizada = rawPlaca ? String(rawPlaca).toUpperCase().replace(/\s/g, '') : null;
       
       const id = payload.id || generateId('MOT');
       const status = payload.status || 'ativo';
@@ -94,7 +97,7 @@ export class MotoristaController {
           id, nome, cpf, telefone, email, endereco, cnh, cnh_validade,
           cnh_categoria, status, tipo, data_admissao, data_desligamento,
           tipo_pagamento, chave_pix_tipo, chave_pix, banco, agencia, conta,
-          tipo_conta, receita_gerada, viagens_realizadas, caminhao_atual
+          tipo_conta, receita_gerada, viagens_realizadas, caminhao_atual, placa_temporaria
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
@@ -120,6 +123,8 @@ export class MotoristaController {
           payload.receita_gerada || 0,
           payload.viagens_realizadas || 0,
           payload.caminhao_atual || null,
+          // Regra: se for 'proprio' não persistimos placa_temporaria
+          payload.tipo === 'terceirizado' ? placaSanitizada : null,
         ]
       );
 
@@ -164,6 +169,15 @@ export class MotoristaController {
     try {
       const { id } = req.params;
       const payload = AtualizarMotoristaSchema.parse(req.body);
+
+      // Regra de negocio: se o tipo for definido como 'proprio', placa_temporaria sempre deve ser null
+      if (payload.tipo === 'proprio') {
+        (payload as any).placa_temporaria = null;
+      } else if ((payload as any).placa_temporaria) {
+        // Sanitiza placa antes de persistir
+        (payload as any).placa_temporaria = String((payload as any).placa_temporaria).toUpperCase().replace(/\s/g, '');
+      }
+
       const { fields, values } = buildUpdate(payload as Record<string, unknown>, MOTORISTA_FIELDS);
 
       if (fields.length === 0) {

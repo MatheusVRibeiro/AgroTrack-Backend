@@ -134,6 +134,7 @@ export const CriarMotoristaSchema = z.object({
   receita_gerada: z.number().nonnegative().optional(),
   viagens_realizadas: z.number().int().nonnegative().optional(),
   caminhao_atual: z.string().optional(),
+  placa_temporaria: z.string().regex(/^[A-Z]{3}-?\d{4}$/, 'Placa inválida').optional(),
 });
 
 export type CriarMotoristaInput = z.infer<typeof CriarMotoristaSchema>;

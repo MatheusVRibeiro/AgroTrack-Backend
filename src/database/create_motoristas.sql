@@ -42,8 +42,13 @@ CREATE TABLE IF NOT EXISTS motoristas (
   receita_gerada DECIMAL(15,2) DEFAULT 0.00 COMMENT 'Receita total gerada pelo motorista',
   viagens_realizadas INT DEFAULT 0 COMMENT 'Contador de viagens realizadas',
   
+  -- ===========================================================================
+  -- NOVA COLUNA: Estratégia de "Placas Órfãs" (Terceirizados)
+  -- ===========================================================================
+  placa_temporaria VARCHAR(10) DEFAULT NULL COMMENT 'Placa informada no cadastro do Terceirizado (usada para sugerir no cadastro de caminhão)',
+  
   -- Relacionamento com Veículo
-  caminhao_atual VARCHAR(255) COMMENT 'Placa do caminhão atual (referência visual)',
+  caminhao_atual VARCHAR(255) COMMENT 'Placa do caminhão atual (referência visual do último frete)',
   
   -- Auditoria
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Data de criação do registro',
@@ -55,52 +60,54 @@ CREATE TABLE IF NOT EXISTS motoristas (
   INDEX idx_status (status),
   INDEX idx_tipo (tipo),
   INDEX idx_cnh_validade (cnh_validade),
-  INDEX idx_data_admissao (data_admissao)
+  INDEX idx_data_admissao (data_admissao),
+  INDEX idx_placa_temporaria (placa_temporaria) -- Índice adicionado para buscas rápidas na tela de caminhões
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cadastro de motoristas próprios e terceirizados';
 
 -- =============================================================================
--- Dados de Exemplo
+-- Dados de Exemplo (Atualizados)
 -- =============================================================================
 
 INSERT INTO motoristas (
   id, nome, cpf, telefone, email, endereco, cnh, cnh_validade, cnh_categoria,
   status, tipo, data_admissao, tipo_pagamento, chave_pix_tipo, chave_pix,
-  receita_gerada, viagens_realizadas, caminhao_atual
+  receita_gerada, viagens_realizadas, caminhao_atual, placa_temporaria
 ) VALUES
   (
     'MOT-001', 'Carlos Silva', '123.456.789-00', '(11) 98765-4321', 'carlos.silva@email.com',
     'São Paulo, SP', '12345678900', '2027-08-15', 'E',
     'ativo', 'proprio', '2020-03-15', 'pix', 'cpf', '123.456.789-00',
-    89500.00, 24, 'ABC-1234'
+    89500.00, 24, 'ABC-1234', NULL -- Frota própria não tem placa temporária
   ),
   (
     'MOT-002', 'João Oliveira', '234.567.890-11', '(21) 97654-3210', 'joao.oliveira@email.com',
     'Rio de Janeiro, RJ', '23456789011', '2026-10-22', 'E',
     'ativo', 'terceirizado', '2019-08-22', 'transferencia_bancaria', NULL, NULL,
-    78200.00, 21, 'XYZ-5678'
+    78200.00, 21, 'XYZ-5678', 'CQD-2504' -- Placa informada pelo terceirizado no ato do cadastro
   ),
   (
     'MOT-003', 'Pedro Santos', '345.678.901-22', '(41) 96543-2109', 'pedro.santos@email.com',
     'Curitiba, PR', '34567890122', '2028-05-10', 'E',
     'ferias', 'proprio', '2021-01-10', 'pix', 'email', 'pedro.santos@email.com',
-    72100.00, 19, 'DEF-9012'
+    72100.00, 19, 'DEF-9012', NULL
   ),
   (
     'MOT-004', 'André Costa', '456.789.012-33', '(31) 95432-1098', 'andre.costa@email.com',
     'Belo Horizonte, MG', '45678901233', '2025-12-05', 'E',
     'ativo', 'terceirizado', '2022-06-05', 'pix', 'aleatoria', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-    65800.00, 17, 'GHI-3456'
+    65800.00, 17, 'GHI-3456', 'ZZZ-9999' -- Outro terceirizado com placa pendente
   ),
   (
     'MOT-005', 'Lucas Ferreira', '567.890.123-44', '(48) 94321-0987', 'lucas.ferreira@email.com',
     'Florianópolis, SC', '56789012344', '2029-02-18', 'E',
     'ativo', 'proprio', '2021-09-12', 'pix', 'telefone', '(48) 94321-0987',
-    58900.00, 15, 'JKL-7890'
+    58900.00, 15, 'JKL-7890', NULL
   )
 ON DUPLICATE KEY UPDATE
   nome = VALUES(nome),
   telefone = VALUES(telefone),
-  status = VALUES(status);
+  status = VALUES(status),
+  placa_temporaria = VALUES(placa_temporaria);
 
 -- Dados bancários para João Oliveira (transferência bancária)
 UPDATE motoristas
