@@ -44,12 +44,12 @@ CREATE TABLE IF NOT EXISTS motoristas (
   data_admissao DATE NOT NULL,
   data_desligamento DATE,
   tipo_pagamento ENUM('pix', 'transferencia_bancaria') DEFAULT 'pix',
-  chave_pix_tipo ENUM('cpf', 'email', 'telefone', 'aleatoria'),
-  chave_pix VARCHAR(255),
-  banco VARCHAR(100),
-  agencia VARCHAR(10),
-  conta VARCHAR(20),
-  tipo_conta ENUM('corrente', 'poupanca'),
+  chave_pix_tipo ENUM('cpf', 'email', 'telefone', 'aleatoria') NULL,
+  chave_pix VARCHAR(255) NULL,
+  banco VARCHAR(100) NULL,
+  agencia VARCHAR(10) NULL,
+  conta VARCHAR(20) NULL,
+  tipo_conta ENUM('corrente', 'poupanca') NULL DEFAULT NULL,
   receita_gerada DECIMAL(15,2) DEFAULT 0.00,
   viagens_realizadas INT DEFAULT 0,
   caminhao_atual VARCHAR(255) COMMENT 'Placa do caminhão atual (referência)',
@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS fazendas (
 -- =============================================================================
 -- 4. TABELA: Frota (Depende de motoristas)
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS Frota (
+CREATE TABLE IF NOT EXISTS frota (
   id VARCHAR(255) PRIMARY KEY,
   placa VARCHAR(10) NOT NULL UNIQUE,
   placa_carreta VARCHAR(10) UNIQUE,
@@ -168,7 +168,7 @@ CREATE TABLE IF NOT EXISTS fretes (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (motorista_id) REFERENCES motoristas(id) ON DELETE RESTRICT,
-  FOREIGN KEY (caminhao_id) REFERENCES Frota(id) ON DELETE RESTRICT,
+  FOREIGN KEY (caminhao_id) REFERENCES frota(id) ON DELETE RESTRICT,
   FOREIGN KEY (fazenda_id) REFERENCES fazendas(id) ON DELETE RESTRICT,
   FOREIGN KEY (pagamento_id) REFERENCES pagamentos(id) ON DELETE SET NULL,
   INDEX idx_data_frete (data_frete),
@@ -225,7 +225,7 @@ INSERT INTO fazendas (id, fazenda, localizacao, proprietario, mercadoria, safra,
 ('fz4', 'Fazenda Palmeiras', 'Herculândia/SP', 'Ricardo Bueno', 'Amendoim', '2025/2026', 635.00);
 
 -- 4. FROTA
-INSERT INTO Frota (id, placa, modelo, ano_fabricacao, motorista_fixo_id, capacidade_toneladas, tipo_veiculo) VALUES
+INSERT INTO frota (id, placa, modelo, ano_fabricacao, motorista_fixo_id, capacidade_toneladas, tipo_veiculo) VALUES
 ('v1', 'ABC-1234', 'Volvo FH 540', 2022, 'm1', 35.00, 'BITREM'),
 ('v2', 'DEF-5678', 'Scania R450', 2021, 'm2', 32.00, 'CARRETA'),
 ('v3', 'GHI-9012', 'Mercedes Actros', 2023, 'm4', 35.00, 'BITREM'),

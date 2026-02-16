@@ -113,28 +113,30 @@ export type AtualizarUsuarioInput = z.infer<typeof AtualizarUsuarioSchema>;
 export const CriarMotoristaSchema = z.object({
   id: z.string().min(1).optional(),
   nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres'),
-  cpf: cpfSchema,
+  cpf: cpfSchema.optional().nullable(),
   telefone: z.string().min(10, 'Telefone inválido'),
-  email: z.string().email('Email inválido'),
-  endereco: z.string().optional(),
-  cnh: z.string().min(5, 'CNH inválida'),
-  cnh_validade: z.string().min(1, 'CNH validade obrigatoria'),
-  cnh_categoria: z.string().min(1, 'Categoria CNH obrigatoria'),
-  status: z.enum(['ativo', 'inativo', 'ferias']).optional(),
-  tipo: z.enum(['proprio', 'terceirizado']),
-  data_admissao: z.string().min(1, 'Data de admissao obrigatoria'),
+  email: z.string().email('Email inválido').optional().nullable(),
+  endereco: z.string().optional().nullable(),
+  cnh: z.string().min(5, 'CNH inválida').optional().nullable(),
+  cnh_validade: z.string().min(1, 'CNH validade obrigatoria').optional().nullable(),
+  cnh_categoria: z.string().min(1, 'Categoria CNH obrigatoria').optional().nullable(),
+  status: z.enum(['ativo', 'inativo', 'ferias']),
+  tipo: z.enum(['proprio', 'terceirizado', 'agregado']),
+  data_admissao: z.string().min(1, 'Data de admissao obrigatoria').optional().nullable(),
   data_desligamento: z.string().optional(),
-  tipo_pagamento: z.enum(['pix', 'transferencia_bancaria']).optional(),
+  tipo_pagamento: z.enum(['pix', 'transferencia_bancaria']),
   chave_pix_tipo: z.enum(['cpf', 'email', 'telefone', 'aleatoria']).optional(),
-  chave_pix: z.string().optional(),
-  banco: z.string().optional(),
-  agencia: z.string().optional(),
-  conta: z.string().optional(),
-  tipo_conta: z.enum(['corrente', 'poupanca']).optional(),
+  chave_pix: z.string().optional().nullable(),
+  banco: z.string().optional().nullable(),
+  agencia: z.string().optional().nullable(),
+  conta: z.string().optional().nullable(),
+  tipo_conta: z.enum(['corrente', 'poupanca']).optional().nullable(),
   receita_gerada: z.number().nonnegative().optional(),
   viagens_realizadas: z.number().int().nonnegative().optional(),
   caminhao_atual: z.string().optional(),
-  placa_temporaria: z.string().regex(/^[A-Z]{3}-?\d{4}$/, 'Placa inválida').optional(),
+  rg: z.string().optional().nullable(),
+  data_nascimento: z.string().optional().nullable(),
+  veiculo_id: z.string().optional().nullable(),
 });
 
 export type CriarMotoristaInput = z.infer<typeof CriarMotoristaSchema>;
@@ -146,16 +148,28 @@ export const AtualizarMotoristaSchema = CriarMotoristaSchema.partial().refine(
 
 export type AtualizarMotoristaInput = z.infer<typeof AtualizarMotoristaSchema>;
 
+// Atualização condicional: se alterar tipo para terceirizado/agregado, exige veiculo_id
+export const AtualizarMotoristaSchemaWithVinculo = AtualizarMotoristaSchema.refine((data) => {
+  if (!('tipo' in data)) return true;
+  const tipo = (data as any).tipo;
+  if (tipo === 'terceirizado' || tipo === 'agregado') {
+    return !!(data as any).veiculo_id;
+  }
+  return true;
+}, { message: 'Veículo obrigatório quando tipo é terceirizado/agregado', path: ['veiculo_id'] });
+
+export type AtualizarMotoristaWithVinculoInput = z.infer<typeof AtualizarMotoristaSchemaWithVinculo>;
+
 // ==================== CAMINHÃO ====================
 export const CriarCaminhaoSchema = z.object({
   id: z.string().min(1).optional(),
-  placa: z.string().regex(/^[A-Z]{3}-?\d{4}$/, 'Placa inválida'),
-  placa_carreta: z.string().optional(),
+  placa: z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa inválida'),
+  placa_carreta: z.string().regex(/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/i, 'Placa da carreta invalida').optional().nullable(),
   modelo: z.string().min(3, 'Modelo deve ter pelo menos 3 caracteres'),
-  ano_fabricacao: z.number().int().positive(),
+  ano_fabricacao: z.number().int().positive().optional().nullable(),
   status: z.enum(['disponivel', 'em_viagem', 'manutencao']).optional(),
   motorista_fixo_id: z.string().optional(),
-  capacidade_toneladas: z.number().positive('Capacidade deve ser maior que 0'),
+  capacidade_toneladas: z.number().positive('Capacidade deve ser maior que 0').optional().nullable(),
   km_atual: z.number().int().nonnegative().optional(),
   tipo_combustivel: z.enum(['DIESEL', 'S10', 'ARLA', 'OUTRO']).optional(),
   tipo_veiculo: z.enum(['TRUCADO', 'TOCO', 'CARRETA', 'BITREM', 'RODOTREM']),
@@ -165,12 +179,31 @@ export const CriarCaminhaoSchema = z.object({
   registro_antt: z.string().optional(),
   validade_seguro: z.string().optional(),
   validade_licenciamento: z.string().optional(),
-  proprietario_tipo: z.enum(['PROPRIO', 'TERCEIRO', 'AGREGADO']).optional(),
+  proprietario_tipo: z.enum(['PROPRIO', 'TERCEIRO', 'AGREGADO']),
   ultima_manutencao_data: z.string().optional(),
   proxima_manutencao_km: z.number().int().nonnegative().optional(),
 });
 
+// Regras adicionais para criação de motorista:
+// - Se tipo for 'terceirizado' ou 'agregado', então `veiculo_id` é obrigatório no payload de criação.
+export const CriarMotoristaSchemaWithVinculo = CriarMotoristaSchema.refine((data) => {
+  const needsVinculo = data.tipo === 'terceirizado' || data.tipo === 'agregado';
+  if (needsVinculo) {
+    return !!data.veiculo_id;
+  }
+  return true;
+}, { message: 'Veículo obrigatório para motoristas terceirizados/agregados', path: ['veiculo_id'] });
+
 export type CriarCaminhaoInput = z.infer<typeof CriarCaminhaoSchema>;
+
+// Validação condicional: se o tipo de veículo exige carreta, placa_carreta é obrigatória
+CriarCaminhaoSchema.refine((data) => {
+  const carretaTypes = ['CARRETA', 'BITREM', 'RODOTREM'];
+  if (carretaTypes.includes(String(data.tipo_veiculo).toUpperCase())) {
+    return !!data.placa_carreta;
+  }
+  return true;
+}, { message: 'Placa da carreta obrigatoria para o tipo de veiculo selecionado', path: ['placa_carreta'] });
 
 export const AtualizarCaminhaoSchema = CriarCaminhaoSchema.partial().refine(
   (data) => Object.keys(data).length > 0,
@@ -188,6 +221,7 @@ export const CriarFreteSchema = z.object({
   motorista_nome: z.string().min(3),
   caminhao_id: z.string().min(1),
   caminhao_placa: z.string().min(5),
+  ticket: z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
   fazenda_id: z.string().optional(),
   fazenda_nome: z.string().optional(),
   mercadoria: z.string().min(1),
@@ -213,6 +247,7 @@ export const AtualizarFreteSchema = z
     motorista_nome: z.string().min(3).optional(),
     caminhao_id: z.string().min(1).optional(),
     caminhao_placa: z.string().min(5).optional(),
+    ticket: z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
     fazenda_id: z.string().optional(),
     fazenda_nome: z.string().optional(),
     mercadoria: z.string().min(1).optional(),

@@ -19,7 +19,7 @@ export class DashboardController {
       );
 
       const [frotaRows] = await pool.execute(
-        "SELECT COUNT(*) AS caminhoes_disponiveis FROM Frota WHERE status = 'disponivel'"
+        "SELECT COUNT(*) AS caminhoes_disponiveis FROM frota WHERE status = 'disponivel'"
       );
 
       const frete = (freteRows as Array<{ receita_total: number; custos_total: number; lucro_total: number; total_fretes: number }>)[0];

@@ -3,34 +3,36 @@
 -- Descrição: Gerenciamento completo da frota de veículos
 -- =============================================================================
 
-CREATE TABLE IF NOT EXISTS Frota (
-  -- Identificação Principal
+CREATE TABLE IF NOT EXISTS frota (
+  -- Identificação Principal (Obrigatórios)
   id VARCHAR(255) PRIMARY KEY COMMENT 'ID único do veículo',
-  placa VARCHAR(10) NOT NULL UNIQUE COMMENT 'Placa do caminhão trator (ex: ABC-1234)',
-  placa_carreta VARCHAR(10) UNIQUE COMMENT 'Placa do reboque/carreta para bitrens/carretas',
-  modelo VARCHAR(100) NOT NULL COMMENT 'Modelo completo do veículo incluindo marca (ex: Volvo FH 540)',
-  ano_fabricacao INT NOT NULL COMMENT 'Ano de fabricação do veículo',
+  placa VARCHAR(10) NOT NULL UNIQUE COMMENT 'Placa do caminhão trator (ex: ABC-1234) - OBRIGATÓRIO',
+  modelo VARCHAR(100) NOT NULL COMMENT 'Modelo completo do veículo incluindo marca (ex: Volvo FH 540) - OBRIGATÓRIO',
+  tipo_veiculo ENUM('TRUCADO', 'TOCO', 'CARRETA', 'BITREM', 'RODOTREM') NOT NULL COMMENT 'Classificação do tipo de veículo - OBRIGATÓRIO',
+  status ENUM('disponivel', 'em_viagem', 'manutencao') NOT NULL DEFAULT 'disponivel' COMMENT 'Status operacional do veículo - OBRIGATÓRIO',
   
-  -- Status e Operação
-  status ENUM('disponivel', 'em_viagem', 'manutencao') NOT NULL DEFAULT 'disponivel' COMMENT 'Status operacional do veículo',
-  motorista_fixo_id VARCHAR(255) COMMENT 'ID do motorista fixo associado (FK para tabela motoristas) - Motorista que opera este veículo regularmente',
+  -- Regra de Reboque
+  placa_carreta VARCHAR(10) UNIQUE COMMENT 'OBRIGATÓRIA se tipo_veiculo for CARRETA, BITREM ou RODOTREM',
   
-  -- Especificações Técnicas
-  capacidade_toneladas DECIMAL(10,2) NOT NULL COMMENT 'Capacidade de carga em toneladas',
-  km_atual INT NOT NULL DEFAULT 0 COMMENT 'Quilometragem atual do veículo',
+  -- Status e Operação (Flexível)
+  motorista_fixo_id VARCHAR(255) COMMENT 'ID do motorista fixo associado (pode ser nulo para veículos sem condutor fixo)',
+  
+  -- Especificações Técnicas (Agora Opcionais - NULL)
+  ano_fabricacao INT COMMENT 'Ano de fabricação do veículo',
+  capacidade_toneladas DECIMAL(10,2) COMMENT 'Capacidade de carga em toneladas',
+  km_atual INT DEFAULT 0 COMMENT 'Quilometragem atual do veículo',
   tipo_combustivel ENUM('DIESEL', 'S10', 'ARLA', 'OUTRO') DEFAULT 'S10' COMMENT 'Tipo de combustível utilizado',
-  tipo_veiculo ENUM('TRUCADO', 'TOCO', 'CARRETA', 'BITREM', 'RODOTREM') NOT NULL COMMENT 'Classificação do tipo de veículo',
   
-  -- Documentação e Fiscal (Essencial para Logística Real)
+  -- Documentação e Fiscal (Opcionais - NULL)
   renavam VARCHAR(20) UNIQUE COMMENT 'RENAVAM do caminhão trator',
   renavam_carreta VARCHAR(20) UNIQUE COMMENT 'RENAVAM do reboque/carreta',
   chassi VARCHAR(30) UNIQUE COMMENT 'Número do chassi do veículo',
-  registro_antt VARCHAR(20) COMMENT 'Registro na Agência Nacional de Transportes Terrestres',
-  validade_seguro DATE COMMENT 'Data de vencimento do seguro do veículo',
+  registro_antt VARCHAR(20) COMMENT 'Registro na ANTT',
+  validade_seguro DATE COMMENT 'Data de vencimento do seguro',
   validade_licenciamento DATE COMMENT 'Data de vencimento do licenciamento (CRLV)',
   
-  -- Gestão e Manutenção
-  proprietario_tipo ENUM('PROPRIO', 'TERCEIRO', 'AGREGADO') DEFAULT 'PROPRIO' COMMENT 'Tipo de proprietário (próprio, terceirizado ou agregado)',
+  -- Gestão e Manutenção (Opcionais - NULL)
+  proprietario_tipo ENUM('PROPRIO', 'TERCEIRO', 'AGREGADO') DEFAULT 'PROPRIO' COMMENT 'Tipo de proprietário',
   ultima_manutencao_data DATE COMMENT 'Data da última manutenção realizada',
   proxima_manutencao_km INT COMMENT 'Quilometragem prevista para próxima revisão',
   
@@ -38,23 +40,21 @@ CREATE TABLE IF NOT EXISTS Frota (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Data de criação do registro',
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Data da última atualização',
 
-  -- Relacionamento com a tabela de motoristas
+  -- Relacionamentos
   FOREIGN KEY (motorista_fixo_id) REFERENCES motoristas(id) ON DELETE SET NULL,
   
-  -- Índices para otimização de consultas
+  -- Índices para otimização
   INDEX idx_placa (placa),
   INDEX idx_status (status),
   INDEX idx_motorista_fixo (motorista_fixo_id),
-  INDEX idx_tipo_veiculo (tipo_veiculo),
-  INDEX idx_validade_seguro (validade_seguro),
-  INDEX idx_validade_licenciamento (validade_licenciamento)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Gestão completa da frota de veículos';
+  INDEX idx_tipo_veiculo (tipo_veiculo)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Gestão de frota com campos opcionais e validação condicional de carreta';
 
 -- =============================================================================
 -- Dados de Exemplo
 -- =============================================================================
 
-INSERT INTO Frota (
+INSERT INTO frota (
   id, placa, placa_carreta, modelo, ano_fabricacao, status, motorista_fixo_id,
   capacidade_toneladas, km_atual, tipo_combustivel, tipo_veiculo, renavam, renavam_carreta,
   chassi, registro_antt, validade_seguro, validade_licenciamento, proprietario_tipo,
@@ -94,44 +94,47 @@ ON DUPLICATE KEY UPDATE
   placa = VALUES(placa),
   modelo = VALUES(modelo),
   status = VALUES(status);
-
--- =============================================================================
+-- -- =============================================================================
 -- Observações sobre a estrutura
 -- =============================================================================
--- 1. Campos ENUM garantem valores padronizados e evitam inconsistências
--- 2. Datas separadas para documentação facilitam alertas de vencimento
--- 3. Relacionamento com motoristas permite rastrear motorista fixo do veículo
---    - ON DELETE SET NULL: Se motorista for excluído, veículo fica sem motorista fixo
---    - Permite reatribuir motorista facilmente através da tela de gestão
--- 4. Índices melhoram performance em consultas frequentes
--- 5. Campos de auditoria (created_at/updated_at) rastreiam mudanças
--- 6. UNIQUE em placas/RENAVAM/chassi evita duplicatas
--- 7. Campo placa_carreta opcional suporta tanto carretas quanto caminhões simples
--- 8. Campo modelo agora contém marca + modelo para identificação completa
+-- 1. Campos ENUM garantem valores padronizados e evitam inconsistências operacionais.
+-- 2. Flexibilidade de Cadastro: Campos técnicos (RENAVAM, Chassi, Capacidade) permitem NULL, 
+--    viabilizando o cadastro rápido de veículos com apenas dados básicos.
+-- 3. Validação Condicional: A coluna placa_carreta deve ser exigida pelo sistema apenas 
+--    quando o tipo_veiculo for 'CARRETA', 'BITREM' ou 'RODOTREM'.
+-- 4. Relacionamento com motoristas permite rastrear o condutor fixo do veículo.
+--    - ON DELETE SET NULL: Se um motorista for excluído, o veículo permanece no sistema, 
+--      apenas perdendo o vínculo fixo.
+-- 5. Índices Estratégicos: Otimizam buscas por placa, status operacional e tipo de veículo.
+-- 6. UNIQUE em identificadores: Placas, RENAVAM e Chassi possuem restrição de unicidade 
+--    para evitar duplicidade de ativos na frota.
+-- 7. Campos de Auditoria: created_at e updated_at permitem rastrear a data de inserção 
+--    e a última modificação do registro.
 
 -- =============================================================================
 -- Queries de Exemplo - Relacionamento Frota x Motoristas
 -- =============================================================================
 
--- Listar todos os veículos com seus motoristas
--- SELECT f.placa, f.modelo, m.nome as motorista, m.tipo as tipo_motorista
--- FROM Frota f
--- LEFT JOIN motoristas m ON f.motorista_fixo_id = m.id;
+-- Listar veículos, motoristas fixos e destacar quem precisa de placa de carreta
+SELECT 
+    f.placa, 
+    f.modelo, 
+    f.tipo_veiculo,
+    CASE 
+        WHEN f.tipo_veiculo IN ('CARRETA', 'BITREM', 'RODOTREM') AND f.placa_carreta IS NULL 
+        THEN 'PENDENTE' ELSE f.placa_carreta 
+    END AS status_reboque,
+    m.nome AS motorista_fixo
+FROM frota f
+LEFT JOIN motoristas m ON f.motorista_fixo_id = m.id;
 
--- Veículos disponíveis sem motorista fixo
--- SELECT placa, modelo, status 
--- FROM Frota 
--- WHERE motorista_fixo_id IS NULL AND status = 'disponivel';
-
--- Veículos por motorista
--- SELECT m.nome, COUNT(f.id) as total_veiculos, 
---        GROUP_CONCAT(f.placa SEPARATOR ', ') as placas
--- FROM motoristas m
--- LEFT JOIN Frota f ON m.id = f.motorista_fixo_id
--- GROUP BY m.id, m.nome;
-
--- Veículos com documentação próxima do vencimento (30 dias)
--- SELECT placa, modelo, validade_seguro, validade_licenciamento
--- FROM Frota
--- WHERE validade_seguro <= DATE_ADD(CURDATE(), INTERVAL 30 DAY)
---    OR validade_licenciamento <= DATE_ADD(CURDATE(), INTERVAL 30 DAY);
+-- Buscar sugestões de "Placas Órfãs" (Motoristas terceiros com placa mas sem veículo na frota)
+-- Esta query ajuda a implementar a lógica de preenchimento automático que você solicitou.
+SELECT 
+    m.id AS motorista_id, 
+    m.nome AS motorista_nome, 
+  m.caminhao_atual
+FROM motoristas m
+WHERE m.caminhao_atual IS NOT NULL
+AND m.caminhao_atual NOT IN (SELECT placa FROM frota)
+;

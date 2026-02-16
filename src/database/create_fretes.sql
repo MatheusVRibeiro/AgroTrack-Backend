@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS fretes (
   motorista_nome VARCHAR(200) NOT NULL COMMENT 'Nome do motorista (cache)',
   caminhao_id VARCHAR(255) NOT NULL COMMENT 'ID do caminhão (FK)',
   caminhao_placa VARCHAR(10) NOT NULL COMMENT 'Placa do caminhão (cache)',
+  ticket VARCHAR(50) DEFAULT NULL COMMENT 'Ticket da balança (identificação numérica)',
   fazenda_id VARCHAR(255) COMMENT 'ID da fazenda origem (FK)',
   fazenda_nome VARCHAR(200) COMMENT 'Nome da fazenda (cache)',
   
@@ -44,7 +45,7 @@ CREATE TABLE IF NOT EXISTS fretes (
   
   -- Foreign Keys
   FOREIGN KEY (motorista_id) REFERENCES motoristas(id) ON DELETE RESTRICT,
-  FOREIGN KEY (caminhao_id) REFERENCES Frota(id) ON DELETE RESTRICT,
+  FOREIGN KEY (caminhao_id) REFERENCES frota(id) ON DELETE RESTRICT,
   FOREIGN KEY (fazenda_id) REFERENCES fazendas(id) ON DELETE RESTRICT,
   FOREIGN KEY (pagamento_id) REFERENCES pagamentos(id) ON DELETE SET NULL,
   
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS fretes (
   INDEX idx_pagamento (pagamento_id),
   INDEX idx_motorista (motorista_id),
   INDEX idx_caminhao (caminhao_id),
+  INDEX idx_ticket (ticket),
   INDEX idx_fazenda (fazenda_id),
   INDEX idx_origem (origem),
   INDEX idx_destino (destino)
@@ -64,6 +66,7 @@ CREATE TABLE IF NOT EXISTS fretes (
 
 INSERT INTO fretes (
   id, origem, destino, motorista_id, motorista_nome, caminhao_id, caminhao_placa,
+  ticket,
   fazenda_id, fazenda_nome, mercadoria, mercadoria_id, variedade,
   data_frete, quantidade_sacas, toneladas, valor_por_tonelada,
   receita, custos, resultado, pagamento_id
@@ -71,6 +74,7 @@ INSERT INTO fretes (
   (
     'FRETE-2026-001', 'Fazenda Santa Esperança', 'Secador Central - Filial 1',
     'MOT-001', 'Carlos Silva', '1', 'ABC-1234',
+    NULL,
     '1', 'Fazenda Santa Esperança', 'Amendoim em Casca', '1', 'Verde',
     '2026-01-20', 450, 11.25, 600.00,
     6750.00, 1720.00, 5030.00, NULL
@@ -78,6 +82,7 @@ INSERT INTO fretes (
   (
     'FRETE-2026-002', 'Fazenda Boa Vista', 'Secador Central - Filial 2',
     'MOT-002', 'João Oliveira', '2', 'DEF-5678',
+    NULL,
     '2', 'Fazenda Boa Vista', 'Amendoim em Casca', '2', 'Vermelho',
     '2026-01-18', 380, 9.5, 720.00,
     6840.00, 1690.00, 5150.00, NULL
@@ -85,6 +90,7 @@ INSERT INTO fretes (
   (
     'FRETE-2026-003', 'Fazenda São João', 'Secador Central - Filial 1',
     'MOT-003', 'Pedro Santos', '3', 'GHI-9012',
+    NULL,
     '3', 'Fazenda São João', 'Amendoim Premium', '3', 'Selecionado',
     '2026-01-15', 500, 12.5, 600.00,
     7500.00, 0.00, 7500.00, NULL
@@ -92,6 +98,7 @@ INSERT INTO fretes (
   (
     'FRETE-2026-004', 'Fazenda Vale Verde', 'Secador Central - Filial 3',
     'MOT-004', 'André Costa', '4', 'JKL-3456',
+    NULL,
     '4', 'Fazenda Vale Verde', 'Amendoim Descascado', '4', 'Tipo 1',
     '2026-01-12', 300, 7.5, 1000.00,
     7500.00, 1720.00, 5780.00, NULL
@@ -99,6 +106,7 @@ INSERT INTO fretes (
   (
     'FRETE-2026-005', 'Fazenda Recanto', 'Secador Central - Filial 1',
     'MOT-005', 'Lucas Ferreira', '5', 'MNO-7890',
+    NULL,
     '5', 'Fazenda Recanto', 'Amendoim em Casca', '1', 'Runner',
     '2026-01-10', 420, 10.5, 640.00,
     6720.00, 1580.00, 5140.00, NULL
@@ -122,6 +130,10 @@ ON DUPLICATE KEY UPDATE
 -- 9. Variedade é opcional (para detalhamento de tipo de amendoim)
 -- 10. Custos registrados na tela de Custos com referência ao frete (frete_id)
 -- 11. Pagamentos semanais: ao criar pagamento, seleciona-se motorista e sistema retorna fretes não pagos
+-- 12. 'ticket' é o identificador gerado pela balança (normalmente somente números). Foi modelado como
+--     `VARCHAR(50)` para preservar zeros à esquerda e permitir variações no comprimento.
+--     Campo opcional (NULL quando não fornecido).
+-- 13. Índice `idx_ticket` criado para acelerar buscas por ticket (consultas de conferência de pesagem).
 
 -- =============================================================================
 -- Queries de Exemplo

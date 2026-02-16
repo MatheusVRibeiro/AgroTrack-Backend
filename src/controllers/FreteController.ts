@@ -11,6 +11,7 @@ const FRETE_FIELDS = [
   'motorista_id',
   'motorista_nome',
   'caminhao_id',
+  'ticket',
   'caminhao_placa',
   'fazenda_id',
   'fazenda_nome',
@@ -68,7 +69,7 @@ export class FreteController {
           fr.modelo as caminhao_modelo
         FROM fretes f
         LEFT JOIN motoristas m ON m.id = f.motorista_id
-        LEFT JOIN Frota fr ON fr.id = f.caminhao_id
+        LEFT JOIN frota fr ON fr.id = f.caminhao_id
       `;
 
       const params: (string | Date)[] = [];
@@ -137,7 +138,7 @@ export class FreteController {
           fr.tipo_veiculo as caminhao_tipo
         FROM fretes f
         LEFT JOIN motoristas m ON m.id = f.motorista_id
-        LEFT JOIN Frota fr ON fr.id = f.caminhao_id
+        LEFT JOIN frota fr ON fr.id = f.caminhao_id
         WHERE f.id = ?
         LIMIT 1
       `, [id]);
@@ -179,10 +180,10 @@ export class FreteController {
       const resultado = Number(receita) - Number(custos);
 
       const sql = `INSERT INTO fretes (
-        id, origem, destino, motorista_id, motorista_nome, caminhao_id, caminhao_placa,
+        id, origem, destino, motorista_id, motorista_nome, caminhao_id, ticket, caminhao_placa,
         fazenda_id, fazenda_nome, mercadoria, mercadoria_id, variedade, data_frete,
         quantidade_sacas, toneladas, valor_por_tonelada, receita, custos, resultado, pagamento_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       const values = [
         id,
@@ -191,6 +192,7 @@ export class FreteController {
         payload.motorista_id,
         payload.motorista_nome,
         payload.caminhao_id,
+        payload.ticket || null,
         payload.caminhao_placa,
         payload.fazenda_id || null,
         payload.fazenda_nome || null,
