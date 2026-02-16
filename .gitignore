@@ -1,6 +1,6 @@
 # Dependências
 node_modules/
-dist/
+# dist/
 build/
 
 # Variáveis de Ambiente (CRÍTICO)

@@ -35,8 +35,6 @@ const allowedOrigins = [
   'http://localhost:5173',        // Vite default
   'http://192.168.0.174:8081',    // Expo Web na rede local
   'http://192.168.0.174:19006',   // Expo Dev Server alternativo
-  // 'https://agrotrack-frontend-ep3b.onrender.com', // Frontend no Render (URL correta)
-  // 'https://agrotrack-frontend.onrender.com', // Frontend no Render (URL antiga)
   frontendUrl,                    // URL do Frontend (do .env)
 ];
 

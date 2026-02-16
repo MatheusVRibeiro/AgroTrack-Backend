@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';

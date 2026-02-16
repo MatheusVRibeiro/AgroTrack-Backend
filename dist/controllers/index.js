@@ -1,0 +1,24 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.LocaisEntregaController = exports.DashboardController = exports.PagamentoController = exports.CustoController = exports.FreteController = exports.FazendaController = exports.FrotaController = exports.MotoristaController = exports.UsuarioController = exports.AuthController = void 0;
+var AuthController_1 = require("./AuthController");
+Object.defineProperty(exports, "AuthController", { enumerable: true, get: function () { return AuthController_1.AuthController; } });
+var UsuarioController_1 = require("./UsuarioController");
+Object.defineProperty(exports, "UsuarioController", { enumerable: true, get: function () { return UsuarioController_1.UsuarioController; } });
+var MotoristaController_1 = require("./MotoristaController");
+Object.defineProperty(exports, "MotoristaController", { enumerable: true, get: function () { return MotoristaController_1.MotoristaController; } });
+var FrotaController_1 = require("./FrotaController");
+Object.defineProperty(exports, "FrotaController", { enumerable: true, get: function () { return FrotaController_1.FrotaController; } });
+var FazendaController_1 = require("./FazendaController");
+Object.defineProperty(exports, "FazendaController", { enumerable: true, get: function () { return FazendaController_1.FazendaController; } });
+var FreteController_1 = require("./FreteController");
+Object.defineProperty(exports, "FreteController", { enumerable: true, get: function () { return FreteController_1.FreteController; } });
+var CustoController_1 = require("./CustoController");
+Object.defineProperty(exports, "CustoController", { enumerable: true, get: function () { return CustoController_1.CustoController; } });
+var PagamentoController_1 = require("./PagamentoController");
+Object.defineProperty(exports, "PagamentoController", { enumerable: true, get: function () { return PagamentoController_1.PagamentoController; } });
+var DashboardController_1 = require("./DashboardController");
+Object.defineProperty(exports, "DashboardController", { enumerable: true, get: function () { return DashboardController_1.DashboardController; } });
+var LocaisEntregaController_1 = require("./LocaisEntregaController");
+Object.defineProperty(exports, "LocaisEntregaController", { enumerable: true, get: function () { return LocaisEntregaController_1.LocaisEntregaController; } });
+//# sourceMappingURL=index.js.map
