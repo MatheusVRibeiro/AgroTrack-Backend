@@ -5,8 +5,8 @@
 
 CREATE TABLE IF NOT EXISTS custos (
   -- Identificação Principal
-  id VARCHAR(255) PRIMARY KEY COMMENT 'ID único do custo',
-  frete_id VARCHAR(255) NOT NULL COMMENT 'ID do frete relacionado',
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  frete_id INT NOT NULL COMMENT 'ID numérico do frete relacionado',
   
   -- Tipo e Descrição
   tipo ENUM('combustivel', 'manutencao', 'pedagio', 'outros') NOT NULL COMMENT 'Tipo de custo',
@@ -87,14 +87,27 @@ ON DUPLICATE KEY UPDATE
 -- =============================================================================
 -- Observações sobre a estrutura
 -- =============================================================================
--- 1. Campo 'frete_id' vincula o custo ao frete específico
--- 2. Tipo ENUM limita a 4 categorias principais de custos
--- 3. Campos de combustível (litros, tipo_combustivel) são opcionais
--- 4. Campo 'comprovante' indica se há nota fiscal/recibo
--- 5. Campos 'motorista', 'caminhao', 'rota' são informativos (não são FKs rígidas)
--- 6. 'observacoes' permite detalhamento adicional
--- 7. Valor sempre positivo (custos são saídas)
--- 8. Data separada para análises temporais e relatórios
+-- 1. `id` é numérico AUTO_INCREMENT; `frete_id` é numérico e referencia `fretes.id`.
+-- 2. `tipo` enum limita às categorias suportadas: 'combustivel', 'manutencao', 'pedagio', 'outros'.
+-- 3. Campos de combustível (`litros`, `tipo_combustivel`) são opcionais, usados apenas quando aplicável.
+-- 4. `comprovante` indica se existe documentação fiscal anexada.
+-- 5. Campos `motorista`, `caminhao`, `rota` são informativos e facilitam relatórios sem JOINs.
+-- 6. Recomenda-se criar trigger/backend para recalcular `fretes.custos` quando novos custos forem inseridos.
+
+-- =============================================================================
+-- Queries de Exemplo
+-- =============================================================================
+-- Listar todos os custos de um frete específico
+-- SELECT id, tipo, descricao, FORMAT(valor, 2, 'pt_BR') as valor, data, comprovante
+-- FROM custos
+-- WHERE frete_id = 1
+-- ORDER BY data DESC;
+
+-- Total de custos por frete
+-- SELECT frete_id, COUNT(*) as total_lancamentos, SUM(valor) as total_custos
+-- FROM custos
+-- GROUP BY frete_id
+-- ORDER BY total_custos DESC;
 
 -- =============================================================================
 -- Queries de Exemplo

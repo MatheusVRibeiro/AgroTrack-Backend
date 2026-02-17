@@ -82,8 +82,11 @@ export class FrotaController {
 
   async criar(req: Request, res: Response): Promise<void> {
     try {
+      console.log('[FROTA][CRIAR][REQ.BODY]', req.body);
       const cleaned = normalizeCaminhaoPayload(req.body);
+      console.log('[FROTA][CRIAR][NORMALIZADO]', cleaned);
       const payload = CriarCaminhaoSchema.parse(cleaned as any);
+      console.log('[FROTA][CRIAR][PAYLOAD]', payload);
       const carretaTypes = ['CARRETA', 'BITREM', 'RODOTREM'];
 
       // Se o tipo de veiculo exige carreta, placa_carreta é obrigatoria
@@ -140,6 +143,7 @@ export class FrotaController {
 
         await conn.commit();
 
+        console.log('[FROTA][CRIAR][RESULT]', { id: codigo });
         res.status(201).json({
           success: true,
           message: 'Veiculo criado com sucesso',

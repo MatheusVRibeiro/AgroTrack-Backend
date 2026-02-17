@@ -1,99 +1,48 @@
 -- =============================================================================
--- Tabela: fazendas
--- Descrição: Cadastro de fazendas produtoras e controle de produção
+-- 4. TABELA: fazendas (Independente)
 -- =============================================================================
-
 CREATE TABLE IF NOT EXISTS fazendas (
-  -- Identificação Principal
-  id VARCHAR(255) PRIMARY KEY COMMENT 'ID único da fazenda',
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  codigo_fazenda VARCHAR(20) UNIQUE NULL COMMENT 'ID de negócio (Ex: FAZ-2026-001)',
   fazenda VARCHAR(200) NOT NULL COMMENT 'Nome da fazenda',
   localizacao VARCHAR(255) NOT NULL COMMENT 'Cidade/Estado da fazenda',
-  proprietario VARCHAR(200) NOT NULL COMMENT 'Nome do proprietário',
-  
-  -- Produção
-  mercadoria VARCHAR(100) NOT NULL COMMENT 'Tipo de mercadoria produzida (ex: Amendoim em Casca)',
-  variedade VARCHAR(100) COMMENT 'Variedade/tipo específico (ex: Verde, Vermelho, Runner)',
-  safra VARCHAR(20) NOT NULL COMMENT 'Safra atual (ex: 2024/2025)',
-  
-  -- Especificações
-  preco_por_tonelada DECIMAL(10,2) NOT NULL COMMENT 'Preço base por tonelada',
-  peso_medio_saca DECIMAL(10,2) DEFAULT 25.00 COMMENT 'Peso médio da saca em kg',
-  
-  -- Totalizadores (Atualizados por Fretes)
-  total_sacas_carregadas INT DEFAULT 0 COMMENT 'Total de sacas já carregadas nesta safra',
-  total_toneladas DECIMAL(15,2) DEFAULT 0.00 COMMENT 'Total de toneladas já carregadas nesta safra',
-  faturamento_total DECIMAL(15,2) DEFAULT 0.00 COMMENT 'Faturamento total gerado nesta safra',
-  
-  -- Controle
-  ultimo_frete DATE COMMENT 'Data do último frete realizado',
-  colheita_finalizada BOOLEAN DEFAULT FALSE COMMENT 'Indica se a colheita da safra foi finalizada',
-  
-  -- Auditoria
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Data de criação do registro',
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Data da última atualização',
-  
-  -- Índices para otimização
+  proprietario VARCHAR(200) NOT NULL,
+  mercadoria VARCHAR(100) NOT NULL,
+  variedade VARCHAR(100),
+  safra VARCHAR(20) NOT NULL,
+  preco_por_tonelada DECIMAL(10,2) NOT NULL,
+  peso_medio_saca DECIMAL(10,2) DEFAULT 25.00,
+  total_sacas_carregadas INT DEFAULT 0,
+  total_toneladas DECIMAL(15,2) DEFAULT 0.00,
+  faturamento_total DECIMAL(15,2) DEFAULT 0.00,
+  ultimo_frete DATE,
+  colheita_finalizada BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_fazenda (fazenda),
-  INDEX idx_localizacao (localizacao),
-  INDEX idx_safra (safra),
-  INDEX idx_proprietario (proprietario),
-  INDEX idx_colheita_finalizada (colheita_finalizada)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cadastro de fazendas e controle de produção';
+  INDEX idx_safra (safra)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
--- Dados de Exemplo
+-- Dados de Exemplo (adaptados ao novo esquema numérico)
 -- =============================================================================
-
 INSERT INTO fazendas (
-  id, fazenda, localizacao, proprietario, mercadoria, variedade, safra,
+  codigo_fazenda, fazenda, localizacao, proprietario, mercadoria, variedade, safra,
   preco_por_tonelada, peso_medio_saca, total_sacas_carregadas, total_toneladas,
-  faturamento_total, ultimo_frete, colheita_finalizada
+  faturamento_total, ultimo_frete, colheita_finalizada, created_at
 ) VALUES
   (
-    '1', 'Fazenda Santa Esperança', 'Marília, SP', 'João Silva',
-    'Amendoim em Casca', 'Verde', '2024/2025',
-    600.00, 25.00, 0, 0.00, 0.00, NULL, FALSE
+    'FAZ-2026-001', 'Fazenda Santa Esperança', 'Marília, SP', 'João Silva',
+    'Amendoim em Casca', 'Verde', '2024/2025', 600.00, 25.00, 0, 0.00, 0.00, NULL, FALSE, CURRENT_TIMESTAMP
   ),
   (
-    '2', 'Fazenda Boa Vista', 'Tupã, SP', 'Maria Santos',
-    'Amendoim em Casca', 'Vermelho', '2024/2025',
-    720.00, 25.00, 0, 0.00, 0.00, NULL, FALSE
-  ),
-  (
-    '3', 'Fazenda São João', 'Jaboticabal, SP', 'Pedro Costa',
-    'Amendoim Premium', 'Selecionado', '2024/2025',
-    1000.00, 25.00, 0, 0.00, 0.00, NULL, FALSE
-  ),
-  (
-    '4', 'Fazenda Vale Verde', 'Ribeirão Preto, SP', 'Lucas Oliveira',
-    'Amendoim Descascado', 'Tipo 1', '2024/2025',
-    800.00, 25.00, 0, 0.00, 0.00, NULL, FALSE
-  ),
-  (
-    '5', 'Fazenda Recanto', 'Barretos, SP', 'André Ribeiro',
-    'Amendoim em Casca', 'Runner', '2024/2025',
-    640.00, 25.00, 0, 0.00, 0.00, NULL, FALSE
+    'FAZ-2026-002', 'Fazenda Boa Vista', 'Tupã, SP', 'Maria Santos',
+    'Amendoim em Casca', 'Vermelho', '2024/2025', 720.00, 25.00, 0, 0.00, 0.00, NULL, FALSE, CURRENT_TIMESTAMP
   )
 ON DUPLICATE KEY UPDATE
   fazenda = VALUES(fazenda),
   localizacao = VALUES(localizacao),
   preco_por_tonelada = VALUES(preco_por_tonelada);
-
--- =============================================================================
--- Observações sobre a estrutura
--- =============================================================================
--- 1. Totalizadores (sacas, toneladas, faturamento) começam em 0
--- 2. São atualizados automaticamente quando fretes são registrados
--- 3. Campo 'ultimo_frete' ajuda no controle de entregas
--- 4. 'colheita_finalizada' marca o fim da safra (não permite mais fretes)
--- 5. Peso médio da saca padrão: 25kg (padrão do setor de amendoim)
--- 6. Preço por tonelada define o valor base para cálculos de frete
--- 7. Safra no formato 'AAAA/AAAA' (ex: 2024/2025)
--- 8. Localizacao armazena cidade e estado para referência de rotas
-
--- =============================================================================
--- Queries de Exemplo
--- =============================================================================
 
 -- Listar todas as fazendas ativas (colheita não finalizada)
 -- SELECT id, fazenda, localizacao, proprietario, mercadoria, variedade,

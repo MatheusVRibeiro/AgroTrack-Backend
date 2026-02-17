@@ -5,10 +5,11 @@
 
 CREATE TABLE IF NOT EXISTS pagamentos (
   -- Identificação Principal
-  id VARCHAR(255) PRIMARY KEY COMMENT 'ID único do pagamento (ex: PAG-2026-001)',
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  codigo_pagamento VARCHAR(20) UNIQUE NULL COMMENT 'ID de negócio (Ex: PAG-2026-001)',
   
   -- Relacionamento com Motorista
-  motorista_id VARCHAR(255) NOT NULL COMMENT 'ID do motorista (FK)',
+  motorista_id INT NOT NULL COMMENT 'ID numérico do motorista (FK)',
   motorista_nome VARCHAR(200) NOT NULL COMMENT 'Nome do motorista (cache)',
   
   -- Período e Fretes
@@ -99,18 +100,44 @@ ON DUPLICATE KEY UPDATE
 -- =============================================================================
 -- Observações sobre a estrutura
 -- =============================================================================
--- 1. ID segue padrão 'PAG-AAAA-NNN' (ano-sequencial)
--- 2. Foreign Key para motoristas com RESTRICT (não permite excluir motorista com pagamentos)
--- 3. Campo motorista_nome é cache para evitar JOINs desnecessários
--- 4. 'fretes_incluidos' armazena IDs dos fretes separados por vírgula (ex: 'FRETE-2026-001,FRETE-2026-002')
--- 5. 'periodo_fretes' é textual para flexibilidade (ex: '15-20/01/2026' ou '18/01/2026')
--- 6. 'total_toneladas' é a soma das toneladas de todos os fretes incluídos
--- 7. 'valor_total' calculado: total_toneladas × valor_por_tonelada
--- 8. Status 'pendente' → 'processando' → 'pago' ou 'cancelado'
--- 9. Comprovante é opcional (apenas para pagamentos concluídos)
--- 10. Método de pagamento vinculado ao tipo cadastrado no motorista
--- 11. FLUXO SEMANAL: Ao criar pagamento, seleciona-se motorista e sistema retorna apenas fretes não pagos
--- 12. Quando pagamento é criado, os fretes incluídos recebem o pagamento_id (vínculo)
+-- 1. `id` é numérico AUTO_INCREMENT e `codigo_pagamento` guarda o identificador de negócio (ex: PAG-2026-001).
+-- 2. Foreign Key para `motoristas` com `RESTRICT` (não permite excluir motorista com pagamentos).
+-- 3. Campo `motorista_nome` é cache para evitar JOINs desnecessários em relatórios.
+-- 4. `fretes_incluidos` armazena IDs de negócio dos fretes separados por vírgula (ex: 'FRT-2026-001,FRT-2026-002').
+-- 5. `periodo_fretes` é textual para flexibilidade (ex: '15-20/01/2026' ou '18/01/2026').
+-- 6. `total_toneladas` é a soma das toneladas de todos os fretes incluídos; `valor_total` = total_toneladas × valor_por_tonelada.
+-- 7. Status: 'pendente' → 'processando' → 'pago' ou 'cancelado'.
+-- 8. Comprovante é opcional (apenas para pagamentos concluídos) e ao subir comprovante o status pode ser atualizado.
+-- 9. FLUXO SEMANAL: Ao criar pagamento, seleciona-se motorista e sistema retorna apenas fretes não pagos.
+-- 10. Quando pagamento é criado, o backend deve atualizar os fretes incluídos com `pagamento_id`.
+
+-- =============================================================================
+-- Queries e Triggers de Exemplo
+-- =============================================================================
+-- Fluxo de pagamento semanal: listar motoristas com fretes pendentes
+-- SELECT m.id, m.nome,
+--        COUNT(f.id) as total_fretes_pendentes,
+--        SUM(f.toneladas) as total_toneladas,
+--        SUM(f.resultado) as total_a_pagar,
+--        MIN(f.data_frete) as frete_mais_antigo,
+--        MAX(f.data_frete) as frete_mais_recente
+-- FROM motoristas m
+-- INNER JOIN fretes f ON m.id = f.motorista_id
+-- WHERE f.pagamento_id IS NULL
+-- GROUP BY m.id, m.nome
+-- ORDER BY total_a_pagar DESC;
+
+-- Trigger sugerido (documentação): depois de inserir pagamento, atualizar fretes vinculados
+-- DELIMITER $$
+-- CREATE TRIGGER trg_vincula_fretes_pagamento
+-- AFTER INSERT ON pagamentos
+-- FOR EACH ROW
+-- BEGIN
+--   UPDATE fretes
+--   SET pagamento_id = NEW.id
+--   WHERE FIND_IN_SET(codigo_frete, NEW.fretes_incluidos) > 0;
+-- END$$
+-- DELIMITER ;
 
 -- =============================================================================
 -- Queries de Exemplo

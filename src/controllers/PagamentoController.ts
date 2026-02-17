@@ -31,23 +31,20 @@ export class PagamentoController {
 
     // Buscar o último pagamento do ano atual
     const [rows] = await pool.execute(
-      `SELECT id FROM pagamentos WHERE id LIKE ? ORDER BY id DESC LIMIT 1`,
+      `SELECT codigo_pagamento FROM pagamentos WHERE codigo_pagamento LIKE ? ORDER BY codigo_pagamento DESC LIMIT 1`,
       [`${prefixo}%`]
     );
 
-    const pagamentos = rows as Array<{ id: string }>;
+    const pagamentos = rows as Array<{ codigo_pagamento: string }>;
 
     if (pagamentos.length === 0) {
-      // Primeiro pagamento do ano
       return `${prefixo}001`;
     }
 
-    // Extrair número sequencial do último ID (PAG-2026-001 -> 001)
-    const ultimoId = pagamentos[0].id;
-    const ultimoNumero = parseInt(ultimoId.split('-')[2], 10);
+    const ultimoCodigo = pagamentos[0].codigo_pagamento;
+    const partes = ultimoCodigo.split('-');
+    const ultimoNumero = parseInt(partes[2] || '0', 10) || 0;
     const proximoNumero = ultimoNumero + 1;
-
-    // Formatar com 3 dígitos (001, 002, ..., 999)
     return `${prefixo}${proximoNumero.toString().padStart(3, '0')}`;
   }
 
@@ -96,43 +93,100 @@ export class PagamentoController {
 
   async criar(req: Request, res: Response): Promise<void> {
     try {
+      console.log('📦 [PAGAMENTO] Requisição recebida - Body:', JSON.stringify(req.body));
       const payload = CriarPagamentoSchema.parse(req.body);
-      const id = payload.id || (await this.gerarProximoIdPagamento());
+      console.log('✅ [PAGAMENTO] Payload validado:', payload);
+
+      // Preparar lista de fretes (se informada)
+      let fretesList: number[] = [];
+      if (payload.fretes_incluidos) {
+        fretesList = String(payload.fretes_incluidos)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((v) => Number(v));
+      }
+
+      // Verificar fretes não pagos
+      if (fretesList.length > 0) {
+        const placeholders = fretesList.map(() => '?').join(',');
+        const [rows] = await pool.execute(
+          `SELECT id, pagamento_id FROM fretes WHERE id IN (${placeholders})`,
+          fretesList
+        );
+        const fretes = rows as Array<{ id: number; pagamento_id: number | null }>;
+
+        const naoEncontrados = fretesList.filter((id) => !fretes.some((f) => f.id === id));
+        if (naoEncontrados.length > 0) {
+          res.status(400).json({ success: false, message: `Fretes não encontrados: ${naoEncontrados.join(',')}` } as ApiResponse<null>);
+          return;
+        }
+
+        const jaPagos = fretes.filter((f) => f.pagamento_id !== null).map((f) => f.id);
+        if (jaPagos.length > 0) {
+          res.status(400).json({ success: false, message: `Alguns fretes já estão pagos: ${jaPagos.join(',')}` } as ApiResponse<null>);
+          return;
+        }
+      }
+
+      const codigoPagamento = (payload.id && typeof payload.id === 'string') ? payload.id : await this.gerarProximoIdPagamento();
       const status = payload.status || 'pendente';
 
-      await pool.execute(
-        `INSERT INTO pagamentos (
-          id, motorista_id, motorista_nome, periodo_fretes, quantidade_fretes, fretes_incluidos,
-          total_toneladas, valor_por_tonelada, valor_total, data_pagamento, status, metodo_pagamento,
-          comprovante_nome, comprovante_url, comprovante_data_upload, observacoes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          id,
-          payload.motorista_id,
-          payload.motorista_nome,
-          payload.periodo_fretes,
-          payload.quantidade_fretes,
-          payload.fretes_incluidos || null,
-          payload.total_toneladas,
-          payload.valor_por_tonelada,
-          payload.valor_total,
-          payload.data_pagamento,
-          status,
-          payload.metodo_pagamento,
-          payload.comprovante_nome || null,
-          payload.comprovante_url || null,
-          payload.comprovante_data_upload || null,
-          payload.observacoes || null,
-        ]
-      );
+      // Inserir pagamento dentro de transação e vincular fretes
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
 
-      res.status(201).json({
-        success: true,
-        message: 'Pagamento criado com sucesso',
-        data: { id },
-      } as ApiResponse<{ id: string }>);
+        const [result]: any = await conn.execute(
+          `INSERT INTO pagamentos (
+            codigo_pagamento, motorista_id, motorista_nome, periodo_fretes, quantidade_fretes, fretes_incluidos,
+            total_toneladas, valor_por_tonelada, valor_total, data_pagamento, status, metodo_pagamento,
+            comprovante_nome, comprovante_url, comprovante_data_upload, observacoes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            codigoPagamento,
+            payload.motorista_id,
+            payload.motorista_nome,
+            payload.periodo_fretes,
+            payload.quantidade_fretes,
+            payload.fretes_incluidos || null,
+            payload.total_toneladas,
+            payload.valor_por_tonelada,
+            payload.valor_total,
+            payload.data_pagamento,
+            status,
+            payload.metodo_pagamento,
+            payload.comprovante_nome || null,
+            payload.comprovante_url || null,
+            payload.comprovante_data_upload || null,
+            payload.observacoes || null,
+          ]
+        );
+
+        const insertId = result.insertId;
+
+        if (fretesList.length > 0) {
+          const placeholders = fretesList.map(() => '?').join(',');
+          await conn.execute(`UPDATE fretes SET pagamento_id = ? WHERE id IN (${placeholders})`, [insertId, ...fretesList]);
+        }
+
+        await conn.commit();
+
+        res.status(201).json({
+          success: true,
+          message: 'Pagamento criado com sucesso',
+          data: { id: insertId, codigo_pagamento: codigoPagamento },
+        } as ApiResponse<{ id: number; codigo_pagamento: string }>);
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        throw txError;
+      } finally {
+        conn.release();
+      }
     } catch (error) {
       if (error instanceof ZodError) {
+        console.log('⚠️ [PAGAMENTO] Erro de validação Zod:', error.errors);
         res.status(400).json({
           success: false,
           message: 'Dados invalidos',
@@ -141,6 +195,7 @@ export class PagamentoController {
         return;
       }
 
+      console.error('💥 [PAGAMENTO] Erro inesperado ao criar pagamento:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao criar pagamento',

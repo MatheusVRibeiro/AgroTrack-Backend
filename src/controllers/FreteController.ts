@@ -123,6 +123,32 @@ export class FreteController {
     }
   }
 
+  async pendentes(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const motoristaIdParam = req.query.motorista_id as string | undefined;
+      const params: (string | number)[] = [];
+      let sql = `SELECT id, codigo_frete, origem, destino, motorista_id, motorista_nome, caminhao_id, caminhao_placa, quantidade_sacas, toneladas, receita, custos, resultado, data_frete FROM fretes WHERE pagamento_id IS NULL`;
+
+      if (motoristaIdParam) {
+        const motoristaId = Number(motoristaIdParam);
+        if (Number.isNaN(motoristaId)) {
+          res.status(400).json({ success: false, message: 'motorista_id inválido' } as ApiResponse<null>);
+          return;
+        }
+        sql += ' AND motorista_id = ?';
+        params.push(motoristaId);
+      }
+
+      sql += ' ORDER BY data_frete ASC, created_at ASC';
+
+      const [rows] = await pool.execute(sql, params);
+      res.json({ success: true, message: 'Fretes pendentes listados', data: rows } as ApiResponse<unknown>);
+    } catch (error) {
+      console.error('❌ [FRETES] Erro ao listar pendentes:', error);
+      res.status(500).json({ success: false, message: 'Erro ao listar fretes pendentes' } as ApiResponse<null>);
+    }
+  }
+
   async obterPorId(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
@@ -169,7 +195,20 @@ export class FreteController {
 
   async criar(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const payload = CriarFreteSchema.parse(req.body);
+      console.log('[FRETE][CRIAR][REQ.BODY]', req.body);
+      let payload;
+      try {
+        payload = CriarFreteSchema.parse(req.body);
+      } catch (err) {
+        console.error('[FRETE][CRIAR][VALIDACAO][ERRO]', err);
+        res.status(400).json({
+          success: false,
+          message: 'Dados inválidos para criação de frete',
+          error: err instanceof Error ? err.message : err
+        });
+        return;
+      }
+      console.log('[FRETE][CRIAR][PAYLOAD]', payload);
       const id = payload.id || (await this.gerarProximoIdFrete());
 
       const receita =
@@ -181,9 +220,9 @@ export class FreteController {
 
       const sql = `INSERT INTO fretes (
         id, origem, destino, motorista_id, motorista_nome, caminhao_id, ticket, caminhao_placa,
-        fazenda_id, fazenda_nome, mercadoria, mercadoria_id, variedade, data_frete,
+        fazenda_id, fazenda_nome, mercadoria, variedade, data_frete,
         quantidade_sacas, toneladas, valor_por_tonelada, receita, custos, resultado, pagamento_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
       const values = [
         id,
@@ -193,11 +232,10 @@ export class FreteController {
         payload.motorista_nome,
         payload.caminhao_id,
         payload.ticket || null,
-        payload.caminhao_placa,
+        payload.caminhao_placa || null,
         payload.fazenda_id || null,
         payload.fazenda_nome || null,
         payload.mercadoria,
-        payload.mercadoria_id || null,
         payload.variedade || null,
         payload.data_frete,
         payload.quantidade_sacas,
@@ -209,69 +247,22 @@ export class FreteController {
         payload.pagamento_id || null,
       ];
 
-      const connection = await pool.getConnection();
-      try {
-        await connection.beginTransaction();
+          await pool.execute(sql, values);
 
-        if (payload.fazenda_id) {
-          const [fazendaRows] = await connection.execute(
-            'SELECT id FROM fazendas WHERE id = ? LIMIT 1',
-            [payload.fazenda_id]
-          );
-          const fazendas = fazendaRows as unknown[];
-          if (fazendas.length === 0) {
-            await connection.rollback();
-            res.status(404).json({
-              success: false,
-              message: 'Fazenda nao encontrada',
-            } as ApiResponse<null>);
-            return;
+          res.status(201).json({
+            success: true,
+            message: 'Frete criado com sucesso',
+            data: { id },
+          } as ApiResponse<{ id: string }>);
+        } catch (error) {
+          console.error('[FRETE][CRIAR][ERRO 500]', error);
+          res.status(500).json({
+            success: false,
+            message: 'Erro ao criar frete',
+            error: error instanceof Error ? error.message : error
+          });
           }
-        }
-
-        await connection.execute(sql, values);
-
-        if (payload.fazenda_id) {
-          await connection.execute(
-            `UPDATE fazendas
-             SET total_sacas_carregadas = total_sacas_carregadas + ?,
-                 total_toneladas = total_toneladas + ?,
-                 faturamento_total = faturamento_total + ?,
-                 ultimo_frete = ?
-             WHERE id = ?`,
-            [payload.quantidade_sacas, payload.toneladas, receita, payload.data_frete, payload.fazenda_id]
-          );
-        }
-
-        await connection.commit();
-      } catch (transactionError) {
-        await connection.rollback();
-        throw transactionError;
-      } finally {
-        connection.release();
       }
-
-      res.status(201).json({
-        success: true,
-        message: 'Frete criado com sucesso',
-        data: { id },
-      } as ApiResponse<{ id: string }>);
-    } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados invalidos',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
-        return;
-      }
-
-      res.status(500).json({
-        success: false,
-        message: 'Erro ao criar frete',
-      } as ApiResponse<null>);
-    }
-  }
 
   async atualizar(req: AuthRequest, res: Response): Promise<void> {
     try {

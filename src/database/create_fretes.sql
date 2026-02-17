@@ -5,24 +5,24 @@
 
 CREATE TABLE IF NOT EXISTS fretes (
   -- Identificação Principal
-  id VARCHAR(255) PRIMARY KEY COMMENT 'ID único do frete (ex: FRETE-2026-001)',
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  codigo_frete VARCHAR(20) UNIQUE NULL COMMENT 'ID de negócio (Ex: FRT-2026-001)',
   
   -- Origem e Destino
   origem VARCHAR(255) NOT NULL COMMENT 'Local de origem (fazenda)',
   destino VARCHAR(255) NOT NULL COMMENT 'Local de destino (secador, armazém)',
   
   -- Relacionamentos
-  motorista_id VARCHAR(255) NOT NULL COMMENT 'ID do motorista (FK)',
+  motorista_id INT NOT NULL COMMENT 'ID numérico do motorista (FK)',
   motorista_nome VARCHAR(200) NOT NULL COMMENT 'Nome do motorista (cache)',
-  caminhao_id VARCHAR(255) NOT NULL COMMENT 'ID do caminhão (FK)',
+  caminhao_id INT NOT NULL COMMENT 'ID numérico do caminhão (FK)',
   caminhao_placa VARCHAR(10) NOT NULL COMMENT 'Placa do caminhão (cache)',
   ticket VARCHAR(50) DEFAULT NULL COMMENT 'Ticket da balança (identificação numérica)',
-  fazenda_id VARCHAR(255) COMMENT 'ID da fazenda origem (FK)',
+  fazenda_id INT COMMENT 'ID numérico da fazenda origem (FK)',
   fazenda_nome VARCHAR(200) COMMENT 'Nome da fazenda (cache)',
   
   -- Mercadoria
   mercadoria VARCHAR(100) NOT NULL COMMENT 'Tipo de mercadoria transportada',
-  mercadoria_id VARCHAR(255) COMMENT 'ID da mercadoria (referência)',
   variedade VARCHAR(100) COMMENT 'Variedade específica (ex: Verde, Vermelho, Runner)',
   
   -- Data e Quantidades
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS fretes (
   resultado DECIMAL(10,2) COMMENT 'Lucro líquido do frete (receita - custos se houver)',
   
   -- Vínculo com Pagamento
-  pagamento_id VARCHAR(255) COMMENT 'ID do pagamento que incluiu este frete (NULL = não pago ainda)',
+  pagamento_id INT COMMENT 'ID numérico do pagamento que incluiu este frete (NULL = não pago ainda)',
   
   -- Auditoria
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Data de criação do registro',
@@ -118,22 +118,39 @@ ON DUPLICATE KEY UPDATE
 -- =============================================================================
 -- Observações sobre a estrutura
 -- =============================================================================
--- 1. ID segue padrão 'FRETE-AAAA-NNN' (ano-sequencial)
--- 2. Foreign Keys para motoristas, Frota e fazendas com RESTRICT
---    - Não permite excluir motorista/caminhão/fazenda se houver fretes vinculados
--- 3. Campos cache (motorista_nome, caminhao_placa, fazenda_nome) evitam JOINs desnecessários
--- 4. 'toneladas' calculado: quantidade_sacas × peso_medio_saca / 1000
--- 5. 'receita' calculado: toneladas × valor_por_tonelada
--- 6. 'custos' atualizado pela soma dos registros na tabela custos (vinculado com tela de Custos)
--- 7. 'resultado' calculado: receita - custos
--- 8. 'pagamento_id' vincula o frete a um pagamento (NULL = frete não pago ainda)
--- 9. Variedade é opcional (para detalhamento de tipo de amendoim)
--- 10. Custos registrados na tela de Custos com referência ao frete (frete_id)
--- 11. Pagamentos semanais: ao criar pagamento, seleciona-se motorista e sistema retorna fretes não pagos
--- 12. 'ticket' é o identificador gerado pela balança (normalmente somente números). Foi modelado como
---     `VARCHAR(50)` para preservar zeros à esquerda e permitir variações no comprimento.
---     Campo opcional (NULL quando não fornecido).
--- 13. Índice `idx_ticket` criado para acelerar buscas por ticket (consultas de conferência de pesagem).
+-- 1. `id` é numérico AUTO_INCREMENT e `codigo_frete` guarda o identificador de negócio (ex: FRT-2026-001).
+-- 2. Foreign Keys para `motoristas`, `frota` e `fazendas` com RESTRICT — não permite excluir
+--    motorista/caminhão/fazenda se houver fretes vinculados.
+-- 3. Campos cache (`motorista_nome`, `caminhao_placa`, `fazenda_nome`) evitam JOINs desnecessários.
+-- 4. `toneladas` normalmente calculado: `quantidade_sacas × peso_medio_saca / 1000` (padrão do setor).
+-- 5. `receita` calculado: toneladas × valor_por_tonelada; `resultado` = receita - custos.
+-- 6. `custos` pode ser atualizado pelo backend com a soma da tabela `custos` vinculada por `frete_id`.
+-- 7. `pagamento_id` vincula o frete a um pagamento (NULL = não pago ainda).
+-- 8. `ticket` é o identificador da balança (VARCHAR para preservar zeros e formatos variados).
+-- 9. `variedade` é opcional para detalhamento de mercadoria.
+-- 10. Índices criados para acelerar buscas por data, motorista, caminhão, fazenda e ticket.
+
+-- =============================================================================
+-- Queries de Exemplo
+-- =============================================================================
+-- Listar fretes não pagos
+-- SELECT id, codigo_frete, origem, destino, motorista_nome, toneladas, receita
+-- FROM fretes
+-- WHERE pagamento_id IS NULL
+-- ORDER BY data_frete ASC;
+
+-- Trigger sugerido: recalcular `custos` e `resultado` após inserção de custos
+-- DELIMITER $$
+-- CREATE TRIGGER trg_atualiza_resultado_frete
+-- BEFORE INSERT ON custos
+-- FOR EACH ROW
+-- BEGIN
+--   UPDATE fretes
+----   SET custos = COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = NEW.frete_id), 0),
+--   SET resultado = receita - custos
+--   WHERE id = NEW.frete_id;
+-- END$$
+-- DELIMITER ;
 
 -- =============================================================================
 -- Queries de Exemplo

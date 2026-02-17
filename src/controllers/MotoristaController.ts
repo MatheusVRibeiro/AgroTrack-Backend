@@ -77,77 +77,58 @@ class _MotoristaController {
   }
 
   async criar(req: Request, res: Response): Promise<void> {
+    const connection = await pool.getConnection();
     try {
+      await connection.beginTransaction();
+      // 1. INSERT sem o campo codigo_motorista
+      // Certifique-se de que a coluna codigo_motorista no MySQL permite NULL
       const {
         nome, cpf, telefone, email, endereco, status, tipo,
         tipo_pagamento, chave_pix_tipo, chave_pix,
         banco, agencia, conta, tipo_conta
       } = req.body;
-
-      const conn = await pool.getConnection();
-      try {
-        await conn.beginTransaction();
-
-        // 1. INSERT sem ID manual
-        const insertSql = `INSERT INTO motoristas (
-          nome, cpf, telefone, email, endereco,
-          status, tipo, tipo_pagamento, chave_pix_tipo, chave_pix,
-          banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas
-        ) VALUES (${new Array(16).fill('?').join(',')})`;
-        const insertParams = [
-          nome,
-          cpf ?? null,
-          telefone,
-          email ?? null,
-          endereco ?? null,
-          status || 'ativo',
-          tipo,
-          tipo_pagamento,
-          chave_pix_tipo ?? null,
-          chave_pix ?? null,
-          banco ?? null,
-          agencia ?? null,
-          conta ?? null,
-          tipo_conta ?? null,
-          0.00,
-          0
-        ];
-        const [result]: any = await conn.execute(insertSql, insertParams);
-        const insertId = result.insertId;
-
-        // 2. Geração da sigla/código
-        // Exemplo: MOT-2026-001
-        const ano = new Date().getFullYear();
-        const codigo = `MOT-${ano}-${String(insertId).padStart(3, '0')}`;
-        await conn.execute('UPDATE motoristas SET id = ? WHERE id = ?', [codigo, insertId]);
-
-        await conn.commit();
-
-        res.status(201).json({
-          success: true,
-          id: codigo
-        });
-        return;
-      } catch (txError) {
-        await conn.rollback();
-        console.error("[MOTORISTA][ERRO TRANSACTION]", txError);
-        res.status(500).json({
-          success: false,
-          message: "Erro ao criar motorista (transação)."
-        });
-        return;
-      } finally {
-        conn.release();
-      }
+      const insertSql = `INSERT INTO motoristas (
+        nome, cpf, telefone, email, endereco,
+        status, tipo, tipo_pagamento, chave_pix_tipo, chave_pix,
+        banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas
+      ) VALUES (${new Array(16).fill('?').join(',')})`;
+      const insertParams = [
+        nome,
+        cpf ?? null,
+        telefone,
+        email ?? null,
+        endereco ?? null,
+        status || 'ativo',
+        tipo,
+        tipo_pagamento,
+        chave_pix_tipo ?? null,
+        chave_pix ?? null,
+        banco ?? null,
+        agencia ?? null,
+        conta ?? null,
+        tipo_conta ?? null,
+        0.00,
+        0
+      ];
+      const [result]: any = await connection.execute(insertSql, insertParams);
+      const insertId = result.insertId;
+      const ano = new Date().getFullYear();
+      const novoCodigo = `MOT-${ano}-${String(insertId).padStart(3, '0')}`;
+      // 2. UPDATE para colocar o código gerado
+      await connection.execute(
+        `UPDATE motoristas SET codigo_motorista = ? WHERE id = ?`,
+        [novoCodigo, insertId]
+      );
+      await connection.commit();
+      res.status(201).json({ success: true, codigo: novoCodigo });
     } catch (error) {
-      console.error("[MOTORISTA][ERRO SQL]", error);
-      res.status(500).json({
-        success: false,
-        message: "Erro ao criar motorista no banco de dados."
-      });
-      return;
+      await connection.rollback();
+      console.error("[MOTORISTA][ERRO TRANSACTION]", error);
+      res.status(500).json({ success: false, message: "Erro ao cadastrar motorista" });
+    } finally {
+      connection.release();
     }
-  }
+    }
 
   async atualizar(req: Request, res: Response): Promise<void> {
     try {

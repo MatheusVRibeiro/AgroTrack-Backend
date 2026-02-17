@@ -66,9 +66,10 @@ export class CustoController {
 
   async criar(req: Request, res: Response): Promise<void> {
     try {
+      console.log('📦 [CUSTO] Requisição recebida - Body:', JSON.stringify(req.body));
       const payload = CriarCustoSchema.parse(req.body);
+      console.log('✅ [CUSTO] Payload validado:', payload);
       const connection = await pool.getConnection();
-      let codigo: string = '';
       try {
         await connection.beginTransaction();
 
@@ -108,10 +109,6 @@ export class CustoController {
           ]
         );
         const insertId = result.insertId;
-        // 2. Geração da sigla/código
-        const ano = new Date().getFullYear();
-        codigo = `CUSTO-${ano}-${String(insertId).padStart(3, '0')}`;
-        await connection.execute('UPDATE custos SET id = ? WHERE id = ?', [codigo, insertId]);
 
         await connection.execute(
           `UPDATE fretes
@@ -126,8 +123,8 @@ export class CustoController {
         res.status(201).json({
           success: true,
           message: 'Custo criado com sucesso',
-          data: { id: codigo },
-        } as ApiResponse<{ id: string }>);
+          data: { id: insertId },
+        } as ApiResponse<{ id: number }>);
         return;
       } catch (transactionError) {
         await connection.rollback();
@@ -137,6 +134,7 @@ export class CustoController {
       }
     } catch (error) {
       if (error instanceof ZodError) {
+        console.log('⚠️ [CUSTO] Erro de validação Zod:', error.errors);
         res.status(400).json({
           success: false,
           message: 'Dados invalidos',
@@ -145,6 +143,7 @@ export class CustoController {
         return;
       }
 
+      console.error('💥 [CUSTO] Erro inesperado ao criar custo:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao criar custo',

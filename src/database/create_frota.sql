@@ -5,7 +5,7 @@
 
 CREATE TABLE IF NOT EXISTS frota (
   -- Identificação Principal (Obrigatórios)
-  id VARCHAR(255) PRIMARY KEY COMMENT 'ID único do veículo',
+  id INT AUTO_INCREMENT PRIMARY KEY,
   placa VARCHAR(10) NOT NULL UNIQUE COMMENT 'Placa do caminhão trator (ex: ABC-1234) - OBRIGATÓRIO',
   modelo VARCHAR(100) NOT NULL COMMENT 'Modelo completo do veículo incluindo marca (ex: Volvo FH 540) - OBRIGATÓRIO',
   tipo_veiculo ENUM('TRUCADO', 'TOCO', 'CARRETA', 'BITREM', 'RODOTREM') NOT NULL COMMENT 'Classificação do tipo de veículo - OBRIGATÓRIO',
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS frota (
   placa_carreta VARCHAR(10) UNIQUE COMMENT 'OBRIGATÓRIA se tipo_veiculo for CARRETA, BITREM ou RODOTREM',
   
   -- Status e Operação (Flexível)
-  motorista_fixo_id VARCHAR(255) COMMENT 'ID do motorista fixo associado (pode ser nulo para veículos sem condutor fixo)',
+  motorista_fixo_id INT COMMENT 'Vínculo numérico com motorista (pode ser nulo para veículo sem condutor fixo)',
   
   -- Especificações Técnicas (Agora Opcionais - NULL)
   ano_fabricacao INT COMMENT 'Ano de fabricação do veículo',
@@ -110,6 +110,47 @@ ON DUPLICATE KEY UPDATE
 --    para evitar duplicidade de ativos na frota.
 -- 7. Campos de Auditoria: created_at e updated_at permitem rastrear a data de inserção 
 --    e a última modificação do registro.
+
+-- =============================================================================
+-- Observações sobre a estrutura
+-- =============================================================================
+-- 1. Campos ENUM garantem valores padronizados e evitam inconsistências operacionais.
+-- 2. Flexibilidade de Cadastro: Campos técnicos (RENAVAM, Chassi, Capacidade) permitem NULL,
+--    viabilizando o cadastro rápido de veículos com apenas dados básicos.
+-- 3. Validação Condicional: A coluna `placa_carreta` deve ser exigida pelo sistema apenas
+--    quando o `tipo_veiculo` for 'CARRETA', 'BITREM' ou 'RODOTREM'.
+-- 4. Relacionamento com `motoristas` permite rastrear o condutor fixo do veículo.
+--    - `ON DELETE SET NULL`: Se um motorista for excluído, o veículo permanece no sistema,
+--      apenas perdendo o vínculo fixo.
+-- 5. Índices Estratégicos: Otimizam buscas por placa, status operacional e tipo de veículo.
+-- 6. UNIQUE em identificadores: Placas, RENAVAM e Chassi possuem restrição de unicidade
+--    para evitar duplicidade de ativos na frota.
+-- 7. Campos de Auditoria: `created_at` e `updated_at` permitem rastrear a data de inserção
+--    e a última modificação do registro.
+
+-- =============================================================================
+-- Queries de Exemplo - Relacionamento Frota x Motoristas
+-- =============================================================================
+-- Listar veículos, motoristas fixos e destacar quem precisa de placa de carreta
+-- SELECT 
+--     f.id, f.placa, f.modelo, f.tipo_veiculo,
+--     CASE 
+--         WHEN f.tipo_veiculo IN ('CARRETA', 'BITREM', 'RODOTREM') AND f.placa_carreta IS NULL 
+--         THEN 'PENDENTE' ELSE f.placa_carreta 
+--     END AS status_reboque,
+--     m.nome AS motorista_fixo
+-- FROM frota f
+-- LEFT JOIN motoristas m ON f.motorista_fixo_id = m.id;
+
+-- Buscar sugestões de "Placas Órfãs" (Motoristas terceiros com placa mas sem veículo na frota)
+-- SELECT 
+--     m.id AS motorista_id, 
+--     m.nome AS motorista_nome, 
+--     m.caminhao_atual
+-- FROM motoristas m
+-- WHERE m.caminhao_atual IS NOT NULL
+-- AND m.caminhao_atual NOT IN (SELECT placa FROM frota)
+-- ;
 
 -- =============================================================================
 -- Queries de Exemplo - Relacionamento Frota x Motoristas

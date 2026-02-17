@@ -108,7 +108,7 @@ export class UsuarioController {
         // 2. Geração da sigla/código
         const ano = new Date().getFullYear();
         const codigo = `USR-${ano}-${String(insertId).padStart(3, '0')}`;
-        await conn.execute('UPDATE usuarios SET id = ? WHERE id = ?', [codigo, insertId]);
+        await conn.execute('UPDATE usuarios SET codigo_usuario = ? WHERE id = ?', [codigo, insertId]);
 
         await conn.commit();
 

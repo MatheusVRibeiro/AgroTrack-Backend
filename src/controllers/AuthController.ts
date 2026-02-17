@@ -53,10 +53,10 @@ export class AuthController {
         const [result]: any = await conn.execute(insertSql, insertParams);
         const insertId = result.insertId;
 
-        // 2. Geração da sigla/código
+        // 2. Geração da sigla/código (campo `codigo_usuario`)
         const ano = new Date().getFullYear();
         const codigo = `USR-${ano}-${String(insertId).padStart(3, '0')}`;
-        await conn.execute('UPDATE usuarios SET id = ? WHERE id = ?', [codigo, insertId]);
+        await conn.execute('UPDATE usuarios SET codigo_usuario = ? WHERE id = ?', [codigo, insertId]);
 
         await conn.commit();
 
