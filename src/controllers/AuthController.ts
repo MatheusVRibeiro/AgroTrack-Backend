@@ -5,7 +5,6 @@ import pool from '../database/connection';
 import { generateToken } from '../middlewares/auth';
 import { CriarUsuarioSchema, LoginSchema } from '../utils/validators';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 
 export class AuthController {
   async registrar(req: Request, res: Response): Promise<void> {
@@ -35,20 +34,51 @@ export class AuthController {
 
       console.log('🔐 [REGISTER] Gerando hash da senha...');
       const senhaHash = await bcrypt.hash(data.senha, 10);
-      const id = generateId('USR');
-      console.log('🆔 [REGISTER] ID gerado:', id);
+      // Usar transação para garantir atomicidade
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
 
-      await pool.execute(
-        'INSERT INTO usuarios (id, nome, email, senha_hash) VALUES (?, ?, ?, ?)',
-        [id, data.nome, data.email, senhaHash]
-      );
-      console.log('✅ [REGISTER] Usuário criado com sucesso:', data.email);
+        // 1. INSERT sem ID manual
+        const insertSql = `INSERT INTO usuarios (
+          nome, email, senha_hash, role, ativo
+        ) VALUES (?, ?, ?, ?, ?)`;
+        const insertParams = [
+          data.nome,
+          data.email,
+          senhaHash,
+          'operador', // padrão
+          true
+        ];
+        const [result]: any = await conn.execute(insertSql, insertParams);
+        const insertId = result.insertId;
 
-      res.status(201).json({
-        success: true,
-        message: 'Usuario criado com sucesso',
-        data: { id, nome: data.nome, email: data.email },
-      } as ApiResponse<{ id: string; nome: string; email: string }>);
+        // 2. Geração da sigla/código
+        const ano = new Date().getFullYear();
+        const codigo = `USR-${ano}-${String(insertId).padStart(3, '0')}`;
+        await conn.execute('UPDATE usuarios SET id = ? WHERE id = ?', [codigo, insertId]);
+
+        await conn.commit();
+
+        console.log('🆔 [REGISTER] ID gerado:', codigo);
+        res.status(201).json({
+          success: true,
+          id: codigo
+        });
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        console.error('[REGISTER][ERRO TRANSACTION]', txError);
+        res.status(500).json({
+          success: false,
+          message: 'Erro ao registrar usuário (transação).'
+        });
+        return;
+      } finally {
+        conn.release();
+      }
+
+      // ...código novo já retorna o id/código na resposta acima...
     } catch (error) {
       if (error instanceof ZodError) {
         console.log('⚠️ [REGISTER] Erro de validação Zod:', error.errors);

@@ -3,7 +3,7 @@ import { MotoristaController } from '../controllers/MotoristaController';
 import { authMiddleware } from '../middlewares/auth';
 
 const router = Router();
-const motoristaController = new MotoristaController();
+const motoristaController = MotoristaController;
 
 router.use(authMiddleware);
 

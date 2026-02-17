@@ -2,9 +2,8 @@ import { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
-import { generateId } from '../utils/id';
 import { buildUpdate } from '../utils/sql';
-import { AtualizarMotoristaSchemaWithVinculo, CriarMotoristaSchemaWithVinculo } from '../utils/validators';
+import { AtualizarMotoristaSchemaWithVinculo } from '../utils/validators';
 
 const MOTORISTA_FIELDS = [
   'id',
@@ -13,13 +12,8 @@ const MOTORISTA_FIELDS = [
   'telefone',
   'email',
   'endereco',
-  'cnh',
-  'cnh_validade',
-  'cnh_categoria',
   'status',
   'tipo',
-  'data_admissao',
-  'data_desligamento',
   'tipo_pagamento',
   'chave_pix_tipo',
   'chave_pix',
@@ -29,9 +23,9 @@ const MOTORISTA_FIELDS = [
   'tipo_conta',
   'receita_gerada',
   'viagens_realizadas',
-  'caminhao_atual',
 ];
-export class MotoristaController {
+
+class _MotoristaController {
   async listar(_req: Request, res: Response): Promise<void> {
     try {
       const [rows] = await pool.execute('SELECT * FROM motoristas ORDER BY created_at DESC');
@@ -84,153 +78,88 @@ export class MotoristaController {
 
   async criar(req: Request, res: Response): Promise<void> {
     try {
-      // Normalize empty strings to null for optional fields coming from the frontend
-      const cleanedRequest: any = { ...req.body };
-      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'cnh', 'cnh_validade', 'cnh_categoria', 'cpf', 'tipo_conta', 'endereco']
-        .forEach((k) => {
-          if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
-        });
+      const {
+        nome, cpf, telefone, email, endereco, status, tipo,
+        tipo_pagamento, chave_pix_tipo, chave_pix,
+        banco, agencia, conta, tipo_conta
+      } = req.body;
 
-      const payload = CriarMotoristaSchemaWithVinculo.parse(cleanedRequest) as any;
-
-      // Higienização: proteções para campos opcionais
-      const cpfLimpo = payload.cpf ? String(payload.cpf).replace(/\D/g, '') : null;
-      const cnhLimpa = payload.cnh ? String(payload.cnh).replace(/\D/g, '') : null;
-      const telefoneLimpo = payload.telefone ? String(payload.telefone).replace(/\D/g, '') : null;
-      const chavePixLimpa = payload.chave_pix ? String(payload.chave_pix).replace(/\D/g, '') : null;
-
-      const id = payload.id || generateId('MOT');
-
-      const connection = await pool.getConnection();
+      const conn = await pool.getConnection();
       try {
-        await connection.beginTransaction();
+        await conn.beginTransaction();
 
-        const sql = `INSERT INTO motoristas (
-          id, nome, cpf, telefone, email, endereco, cnh, cnh_validade, cnh_categoria,
-          status, tipo, data_admissao, data_desligamento, tipo_pagamento, chave_pix_tipo,
-          chave_pix, banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas,
-          caminhao_atual
-        ) VALUES (${new Array(23).fill('?').join(',')})`;
-
-        const dadosMotorista: any = {
-          nome: payload.nome,
-          cpf: cpfLimpo,
-          telefone: telefoneLimpo,
-          email: payload.email || null,
-          endereco: payload.endereco || null,
-          cnh: cnhLimpa,
-          cnh_validade: payload.cnh_validade || null,
-          cnh_categoria: payload.cnh_categoria || null,
-          status: payload.status || 'ativo',
-          tipo: payload.tipo,
-          data_admissao: payload.data_admissao || null,
-          data_desligamento: payload.data_desligamento || null,
-          tipo_pagamento: payload.tipo_pagamento || null,
-          chave_pix_tipo: payload.chave_pix_tipo || null,
-          chave_pix: chavePixLimpa || null,
-          banco: payload.banco || null,
-          agencia: payload.agencia || null,
-          conta: payload.conta || null,
-          tipo_conta: payload.tipo_conta || null,
-          receita_gerada: payload.receita_gerada || 0,
-          viagens_realizadas: payload.viagens_realizadas || 0,
-          caminhao_atual: payload.caminhao_atual || null,
-        };
-
-        const values = [
-          id,
-          dadosMotorista.nome,
-          dadosMotorista.cpf,
-          dadosMotorista.telefone,
-          dadosMotorista.email,
-          dadosMotorista.endereco,
-          dadosMotorista.cnh,
-          dadosMotorista.cnh_validade,
-          dadosMotorista.cnh_categoria,
-          dadosMotorista.status,
-          dadosMotorista.tipo,
-          dadosMotorista.data_admissao,
-          dadosMotorista.data_desligamento,
-          dadosMotorista.tipo_pagamento,
-          dadosMotorista.chave_pix_tipo,
-          dadosMotorista.chave_pix,
-          dadosMotorista.banco,
-          dadosMotorista.agencia,
-          dadosMotorista.conta,
-          dadosMotorista.tipo_conta,
-          dadosMotorista.receita_gerada,
-          dadosMotorista.viagens_realizadas,
-          dadosMotorista.caminhao_atual,
+        // 1. INSERT sem ID manual
+        const insertSql = `INSERT INTO motoristas (
+          nome, cpf, telefone, email, endereco,
+          status, tipo, tipo_pagamento, chave_pix_tipo, chave_pix,
+          banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas
+        ) VALUES (${new Array(16).fill('?').join(',')})`;
+        const insertParams = [
+          nome,
+          cpf ?? null,
+          telefone,
+          email ?? null,
+          endereco ?? null,
+          status || 'ativo',
+          tipo,
+          tipo_pagamento,
+          chave_pix_tipo ?? null,
+          chave_pix ?? null,
+          banco ?? null,
+          agencia ?? null,
+          conta ?? null,
+          tipo_conta ?? null,
+          0.00,
+          0
         ];
+        const [result]: any = await conn.execute(insertSql, insertParams);
+        const insertId = result.insertId;
 
-        await connection.execute(sql, values);
+        // 2. Geração da sigla/código
+        // Exemplo: MOT-2026-001
+        const ano = new Date().getFullYear();
+        const codigo = `MOT-${ano}-${String(insertId).padStart(3, '0')}`;
+        await conn.execute('UPDATE motoristas SET id = ? WHERE id = ?', [codigo, insertId]);
 
-        // Vincula ao veículo se informado e aplicável
-        if (payload.veiculo_id && ['terceirizado', 'agregado'].includes(payload.tipo)) {
-          const [rows] = await connection.execute('SELECT id FROM frota WHERE id = ?', [payload.veiculo_id]) as any;
-          if (!rows || rows.length === 0) {
-            await connection.rollback();
-            connection.release();
-            res.status(400).json({ success: false, message: 'Veículo informado não existe' });
-            return;
-          }
-
-          await connection.execute('UPDATE frota SET motorista_fixo_id = ? WHERE id = ?', [id, payload.veiculo_id]);
-        }
-
-        await connection.commit();
-        connection.release();
+        await conn.commit();
 
         res.status(201).json({
           success: true,
-          message: 'Motorista criado com sucesso',
-          data: { id },
-        } as ApiResponse<{ id: string }>);
-      } catch (err) {
-        await connection.rollback();
-        connection.release();
-        throw err;
+          id: codigo
+        });
+        return;
+      } catch (txError) {
+        await conn.rollback();
+        console.error("[MOTORISTA][ERRO TRANSACTION]", txError);
+        res.status(500).json({
+          success: false,
+          message: "Erro ao criar motorista (transação)."
+        });
+        return;
+      } finally {
+        conn.release();
       }
     } catch (error) {
-      if (error instanceof ZodError) {
-        res.status(400).json({
-          success: false,
-          message: 'Dados inválidos. Verifique os campos preenchidos.',
-          error: error.errors.map((err) => err.message).join('; '),
-        } as ApiResponse<null>);
-        return;
-      }
-
-      // Erro de CPF/CNH duplicado
-      if (error && typeof error === 'object' && 'code' in error && (error as any).code === 'ER_DUP_ENTRY') {
-        const msg = String(error).includes('cpf')
-          ? 'Este CPF já está cadastrado no sistema.'
-          : String(error).includes('cnh')
-          ? 'Esta CNH já está cadastrada no sistema.'
-          : 'Dados duplicados. Verifique CPF ou CNH.';
-
-        res.status(409).json({ success: false, message: msg } as ApiResponse<null>);
-        return;
-      }
-
-      res.status(500).json({ success: false, message: 'Erro ao criar motorista. Tente novamente.' } as ApiResponse<null>);
+      console.error("[MOTORISTA][ERRO SQL]", error);
+      res.status(500).json({
+        success: false,
+        message: "Erro ao criar motorista no banco de dados."
+      });
+      return;
     }
   }
 
   async atualizar(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-        // Normalize empty strings to null for update payloads
-        const cleanedRequest: any = { ...req.body };
-        ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'cnh', 'cnh_validade', 'cnh_categoria', 'cpf', 'tipo_conta', 'endereco']
-          .forEach((k) => {
-            if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
-          });
+      // Normalize empty strings to null for update payloads
+      const cleanedRequest: any = { ...req.body };
+      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco']
+        .forEach((k) => {
+          if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
+        });
 
-        const payload = AtualizarMotoristaSchemaWithVinculo.parse(cleanedRequest) as any;
-
-      // Regra de negocio: antiga lógica com 'placa_temporaria' removida do schema
-      // Se necessário, utilizar `veiculo_id` / `motorista_fixo_id` para vínculo.
+      const payload = AtualizarMotoristaSchemaWithVinculo.parse(cleanedRequest) as any;
 
       const { fields, values } = buildUpdate(payload as Record<string, unknown>, MOTORISTA_FIELDS);
 
@@ -301,4 +230,7 @@ export class MotoristaController {
       } as ApiResponse<null>);
     }
   }
+
 }
+
+export const MotoristaController = new _MotoristaController();

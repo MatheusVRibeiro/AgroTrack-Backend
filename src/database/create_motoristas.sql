@@ -14,18 +14,16 @@ CREATE TABLE IF NOT EXISTS motoristas (
   endereco TEXT COMMENT 'Endereço completo (Opcional)',
   
   -- Documentação (Flexibilizada: NULL permitido para cadastro rápido)
-  cpf VARCHAR(14) UNIQUE COMMENT 'CPF (Opcional no início)',
-  cnh VARCHAR(20) UNIQUE COMMENT 'Número da CNH (Opcional)',
-  cnh_validade DATE COMMENT 'Data de validade da CNH (Opcional)',
-  cnh_categoria VARCHAR(5) COMMENT 'Categoria (A, B, C, D, E) (Opcional)',
+  -- cpf VARCHAR(14) UNIQUE COMMENT 'CPF (Opcional no início)',
+  -- cnh VARCHAR(20) UNIQUE COMMENT 'Número da CNH (Opcional)',
+  -- cnh_validade DATE COMMENT 'Data de validade da CNH (Opcional)',
+  -- cnh_categoria VARCHAR(5) COMMENT 'Categoria (A, B, C, D, E) (Opcional)',
   
   -- Status e Tipo
   status ENUM('ativo', 'inativo', 'ferias') NOT NULL DEFAULT 'ativo' COMMENT 'Status atual - OBRIGATÓRIO',
   tipo ENUM('proprio', 'terceirizado', 'agregado') NOT NULL COMMENT 'Tipo de vínculo - OBRIGATÓRIO',
   
-  -- Vínculo Empregatício
-  data_admissao DATE COMMENT 'Data de admissão (Opcional)',
-  data_desligamento DATE COMMENT 'Data de desligamento',
+  -- ...existing code...
   
   -- Dados Bancários (Flexível: PIX ou Conta bancária — campos opcionais)
   tipo_pagamento ENUM('pix', 'transferencia_bancaria') NOT NULL DEFAULT 'pix',
@@ -47,8 +45,8 @@ CREATE TABLE IF NOT EXISTS motoristas (
   -- Índices para otimização (Vírgula final removida para evitar erro 1064)
   INDEX idx_status (status),
   INDEX idx_tipo (tipo),
-  INDEX idx_cpf (cpf),
-  INDEX idx_cnh (cnh)
+  -- INDEX idx_cpf (cpf),
+  -- INDEX idx_cnh (cnh)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Cadastro de motoristas com documentos flexíveis e financeiro rígido';
 
 -- =============================================================================
@@ -57,37 +55,34 @@ CREATE TABLE IF NOT EXISTS motoristas (
 
 INSERT INTO motoristas (
   id, nome, cpf, telefone, email, endereco, cnh, cnh_validade, cnh_categoria,
-  status, tipo, data_admissao, tipo_pagamento, chave_pix_tipo, chave_pix,
+  status, tipo, tipo_pagamento, chave_pix_tipo, chave_pix,
   receita_gerada, viagens_realizadas, caminhao_atual
 ) VALUES
   (
     'MOT-001', 'Carlos Silva', '123.456.789-00', '(11) 98765-4321', 'carlos.silva@email.com',
     'São Paulo, SP', '12345678900', '2027-08-15', 'E',
-    'ativo', 'proprio', '2020-03-15', 'pix', 'cpf', '123.456.789-00',
+    'ativo', 'proprio', 'pix', 'cpf', '123.456.789-00',
     89500.00, 24, 'ABC-1234' -- Frota própria
   ),
   (
     'MOT-002', 'João Oliveira', '234.567.890-11', '(21) 97654-3210', 'joao.oliveira@email.com',
     'Rio de Janeiro, RJ', '23456789011', '2026-10-22', 'E',
-    'ativo', 'terceirizado', '2019-08-22', 'transferencia_bancaria', NULL, NULL,
+    'ativo', 'terceirizado', 'transferencia_bancaria', NULL, NULL,
     78200.00, 21, 'XYZ-5678' -- Frota vinculada
   ),
   (
     'MOT-003', 'Pedro Santos', '345.678.901-22', '(41) 96543-2109', 'pedro.santos@email.com',
     'Curitiba, PR', '34567890122', '2028-05-10', 'E',
-    'ferias', 'proprio', '2021-01-10', 'pix', 'email', 'pedro.santos@email.com',
+    'ferias', 'proprio', 'pix', 'email', 'pedro.santos@email.com',
     72100.00, 19, 'DEF-9012'
   ),
   (
     'MOT-004', 'André Costa', '456.789.012-33', '(31) 95432-1098', 'andre.costa@email.com',
-    'Belo Horizonte, MG', '45678901233', '2025-12-05', 'E',
-    'ativo', 'terceirizado', '2022-06-05', 'pix', 'aleatoria', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-    65800.00, 17, 'GHI-3456' -- Terceirizado
-  ),
+      -- ...documentação removida...
   (
     'MOT-005', 'Lucas Ferreira', '567.890.123-44', '(48) 94321-0987', 'lucas.ferreira@email.com',
     'Florianópolis, SC', '56789012344', '2029-02-18', 'E',
-    'ativo', 'proprio', '2021-09-12', 'pix', 'telefone', '(48) 94321-0987',
+    'ativo', 'proprio', 'pix', 'telefone', '(48) 94321-0987',
     58900.00, 15, 'JKL-7890'
   )
 ON DUPLICATE KEY UPDATE
@@ -113,9 +108,6 @@ WHERE id = 'MOT-002';
 -- 6. Métricas de desempenho (receita e viagens) atualizadas por triggers/backend
 -- 7. Campo 'caminhao_atual' é informativo (não é FK rígida)
 -- 8. Data de desligamento registra histórico sem excluir dados
--- 9. Categoria CNH é obrigatória - deve ser selecionada manualmente (não tem padrão)
-
--- =============================================================================
 -- Queries de Exemplo
 -- =============================================================================
 
@@ -159,23 +151,11 @@ WHERE id = 'MOT-002';
 -- GROUP BY tipo;
 
 -- Motoristas terceirizados ativos
--- SELECT nome, telefone, email, receita_gerada
 -- FROM motoristas
 -- WHERE tipo = 'terceirizado' AND status = 'ativo'
 -- ORDER BY nome;
 
--- Atualizar receita gerada (normalmente feito pelo backend após conclusão de frete)
--- UPDATE motoristas
--- SET receita_gerada = receita_gerada + 5000.00,
---     viagens_realizadas = viagens_realizadas + 1
--- WHERE id = 'MOT-001';
-
--- Colocar motorista em férias
--- UPDATE motoristas
--- SET status = 'ferias', updated_at = CURRENT_TIMESTAMP
--- WHERE id = 'MOT-003';
-
--- Desligar motorista (soft delete)
+      -- ...documentação de cpf/cnh removida...
 -- UPDATE motoristas
 -- SET status = 'inativo', data_desligamento = CURDATE()
 -- WHERE id = 'MOT-XXX';
