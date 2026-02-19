@@ -317,10 +317,19 @@ export const AtualizarFazendaSchema = CriarFazendaSchema.partial().refine(
 export type AtualizarFazendaInput = z.infer<typeof AtualizarFazendaSchema>;
 
 export const IncrementarVolumeSchema = z.object({
-  toneladas: z.number().positive('Toneladas deve ser um número positivo'),
-  quantidadeSacas: z.number().int().nonnegative().optional(),
-  receitaTotal: z.number().nonnegative().optional(),
-});
+  toneladas: z.coerce.number().positive('Toneladas deve ser um número positivo'),
+  quantidadeSacas: z.coerce.number().int().nonnegative().optional(),
+  receitaTotal: z.coerce.number().nonnegative().optional(),
+  sacas: z.coerce.number().int().nonnegative().optional(),
+  quantidade_sacas: z.coerce.number().int().nonnegative().optional(),
+  faturamento: z.coerce.number().nonnegative().optional(),
+  faturamentoTotal: z.coerce.number().nonnegative().optional(),
+  receita_total: z.coerce.number().nonnegative().optional(),
+}).transform((data) => ({
+  toneladas: data.toneladas,
+  quantidadeSacas: data.quantidadeSacas ?? data.sacas ?? data.quantidade_sacas ?? 0,
+  receitaTotal: data.receitaTotal ?? data.faturamentoTotal ?? data.faturamento ?? data.receita_total ?? 0,
+}));
 
 export type IncrementarVolumeInput = z.infer<typeof IncrementarVolumeSchema>;
 

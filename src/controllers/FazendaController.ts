@@ -314,6 +314,13 @@ export class FazendaController {
         return;
       }
 
+      const fazenda = fazendas[0] as { preco_por_tonelada?: number | string | null };
+      const precoPorTonelada = Number(fazenda.preco_por_tonelada || 0);
+      const faturamentoIncremento =
+        typeof payload.receitaTotal === 'number'
+          ? payload.receitaTotal
+          : payload.toneladas * precoPorTonelada;
+
       // Incrementar volume, sacas e faturamento acumulados
       await pool.execute(
         `UPDATE fazendas
@@ -321,7 +328,7 @@ export class FazendaController {
              total_sacas_carregadas = COALESCE(total_sacas_carregadas, 0) + ?,
              faturamento_total = COALESCE(faturamento_total, 0) + ?
          WHERE id = ?`,
-        [payload.toneladas, payload.quantidadeSacas || 0, payload.receitaTotal || 0, id]
+        [payload.toneladas, payload.quantidadeSacas || 0, faturamentoIncremento, id]
       );
 
       // Buscar fazenda atualizada
