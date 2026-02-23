@@ -577,7 +577,8 @@ export class FreteController {
         res.json({
           success: true,
           message: 'Frete atualizado com sucesso',
-        } as ApiResponse<null>);
+          data: { id: Number(id) }
+        });
       } catch (txError) {
         await connection.rollback();
         throw txError;
