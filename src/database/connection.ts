@@ -3,10 +3,12 @@
 // 🔧 Configuração da conexão MySQL (compatível com AWS RDS)
 // ======================================================
 
-import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+import path from 'path';
 
-dotenv.config();
+// Força a leitura do arquivo .env relativo à raiz do projeto
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // ======================================================
 // ⚙️ CRIA O POOL DE CONEXÕES
@@ -15,7 +17,7 @@ const pool = mysql.createPool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT || 3306),
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'password',
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'logistica_db',
   waitForConnections: true,
   connectionLimit: 10,   // número máximo de conexões simultâneas
