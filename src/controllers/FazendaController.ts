@@ -299,7 +299,8 @@ export class FazendaController {
         `UPDATE fazendas
          SET total_toneladas = COALESCE(total_toneladas, 0) + ?,
              total_sacas_carregadas = COALESCE(total_sacas_carregadas, 0) + ?,
-             faturamento_total = COALESCE(faturamento_total, 0) + ?
+             faturamento_total = COALESCE(faturamento_total, 0) + ?,
+             ultimo_frete = CURDATE()
          WHERE id = ?`,
         [payload.toneladas, payload.quantidadeSacas || 0, faturamentoIncremento, id]
       );

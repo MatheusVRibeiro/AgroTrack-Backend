@@ -22,9 +22,10 @@ export class FazendaService {
             `UPDATE fazendas
        SET total_toneladas = GREATEST(0, COALESCE(total_toneladas, 0) + ?),
            total_sacas_carregadas = GREATEST(0, COALESCE(total_sacas_carregadas, 0) + ?),
-           faturamento_total = GREATEST(0, COALESCE(faturamento_total, 0) + ?)
+           faturamento_total = GREATEST(0, COALESCE(faturamento_total, 0) + ?),
+           ultimo_frete = CASE WHEN ? > 0 THEN CURDATE() ELSE ultimo_frete END
        WHERE id = ?`,
-            [deltaToneladas, deltaSacas, deltaReceita, fazendaId]
+            [deltaToneladas, deltaSacas, deltaReceita, deltaToneladas, fazendaId]
         );
     }
 

@@ -27,31 +27,64 @@ export class DashboardController {
           COUNT(*) AS total_fretes
         FROM fretes`
       );
+      const frete = (freteRows as any[])[0];
 
-      const [motoristaRows] = await pool.execute(
-        "SELECT COUNT(*) AS motoristas_ativos FROM motoristas WHERE status = 'ativo'"
+      const [motoristaStats] = await pool.execute(
+        `SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'ativo' THEN 1 ELSE 0 END) as ativos,
+          SUM(CASE WHEN status = 'ativo' AND (cnh_validade IS NULL OR cnh_validade >= CURDATE()) THEN 1 ELSE 0 END) as regulares
+        FROM motoristas`
       );
+      const mStats = (motoristaStats as any[])[0];
 
-      const [frotaRows] = await pool.execute(
-        "SELECT COUNT(*) AS caminhoes_disponiveis FROM frota WHERE status = 'disponivel'"
+      const [frotaStats] = await pool.execute(
+        `SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'disponivel' THEN 1 ELSE 0 END) as disponiveis,
+          SUM(CASE WHEN (validade_licenciamento IS NULL OR validade_licenciamento >= CURDATE()) 
+                    AND (validade_seguro IS NULL OR validade_seguro >= CURDATE()) THEN 1 ELSE 0 END) as regulares
+        FROM frota`
       );
+      const fStats = (frotaStats as any[])[0];
 
-      const frete = (freteRows as Array<{ receita_total: number; custos_total: number; lucro_total: number; total_fretes: number }>)[0];
-      const motoristas = (motoristaRows as Array<{ motoristas_ativos: number }>)[0];
-      const frota = (frotaRows as Array<{ caminhoes_disponiveis: number }>)[0];
+      const [pagamentoStats] = await pool.execute(
+        `SELECT 
+          COALESCE(SUM(CASE WHEN status = 'pago' THEN valor_total ELSE 0 END), 0) as pago,
+          COALESCE(SUM(CASE WHEN status = 'pendente' THEN valor_total ELSE 0 END), 0) as pendente
+        FROM pagamentos`
+      );
+      const pStats = (pagamentoStats as any[])[0];
+
+      const [fazendaStats] = await pool.execute(
+        `SELECT 
+          COALESCE(SUM(total_toneladas), 0) as volume_real,
+          COUNT(*) as total_fazendas
+        FROM fazendas`
+      );
+      const fazStats = (fazendaStats as any[])[0];
+
+      // Saúde Normativa: Média entre regularidade de motoristas ativos e frota total
+      const saudeMotoristas = mStats.ativos > 0 ? (mStats.regulares / mStats.ativos) * 100 : 100;
+      const saudeFrota = fStats.total > 0 ? (fStats.regulares / fStats.total) * 100 : 100;
+      const saudeNormativa = Number(((saudeMotoristas + saudeFrota) / 2).toFixed(2));
 
       const margemLucro = frete.receita_total > 0
         ? Number(((frete.lucro_total / frete.receita_total) * 100).toFixed(2))
         : 0;
 
       const data = {
-        receitaTotal: frete.receita_total,
-        custosTotal: frete.custos_total,
-        lucroTotal: frete.lucro_total,
+        receitaTotal: Number(frete.receita_total),
+        custosTotal: Number(frete.custos_total),
+        lucroTotal: Number(frete.lucro_total),
         margemLucro,
-        totalFretes: frete.total_fretes,
-        motoristasAtivos: motoristas.motoristas_ativos,
-        caminhoesDisponiveis: frota.caminhoes_disponiveis,
+        totalFretes: Number(frete.total_fretes),
+        motoristasAtivos: Number(mStats.ativos),
+        caminhoesDisponiveis: Number(fStats.disponiveis),
+        saudeNormativa,
+        pagamentosPendentes: Number(pStats.pendente),
+        pagamentosPagos: Number(pStats.pago),
+        volumeColheitaTotal: Number(fazStats.volume_real),
       };
 
       await setCache(cacheKey, data, CACHE_TTL_SECONDS);

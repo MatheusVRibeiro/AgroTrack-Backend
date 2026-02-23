@@ -170,8 +170,8 @@ export class CustoController {
 
         await connection.execute(
           `UPDATE fretes
-           SET custos = IFNULL(custos, 0) + ?,
-               resultado = IFNULL(receita, 0) - (IFNULL(custos, 0) + ?)
+           SET custos = GREATEST(0, IFNULL(custos, 0) + ?),
+               resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) + ?)
            WHERE id = ?`,
           [totalValor, totalValor, freteId]
         );
@@ -278,7 +278,7 @@ export class CustoController {
           const [freteRows] = await connection.execute(
             'SELECT id, pagamento_id FROM fretes WHERE id = ? LIMIT 1',
             [
-            novoFreteId,
+              novoFreteId,
             ]
           );
           const fretes = freteRows as Array<{ id: number; pagamento_id: number | null }>;
@@ -328,8 +328,8 @@ export class CustoController {
 
           await connection.execute(
             `UPDATE fretes
-             SET custos = IFNULL(custos, 0) + ?,
-                 resultado = IFNULL(receita, 0) - (IFNULL(custos, 0) + ?)
+             SET custos = GREATEST(0, IFNULL(custos, 0) + ?),
+                 resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) + ?)
              WHERE id = ?`,
             [novoValor, novoValor, novoFreteId]
           );

@@ -19,16 +19,16 @@ export const sanitizarTelefone = (telefone: string): string => {
 // ==================== VALIDAÇÃO DE CPF ====================
 export const isCPFValido = (cpf: string): boolean => {
   const limpo = cpf.replace(/\D/g, '');
-  
+
   if (limpo.length !== 11) return false;
-  
+
   // CPFs inválidos conhecidos (todos dígitos iguais)
   if (/^(\d)\1{10}$/.test(limpo)) return false;
-  
+
   // Validação dos dígitos verificadores
   let soma = 0;
   let resto;
-  
+
   // Primeiro dígito verificador
   for (let i = 1; i <= 9; i++) {
     soma += parseInt(limpo.substring(i - 1, i)) * (11 - i);
@@ -36,7 +36,7 @@ export const isCPFValido = (cpf: string): boolean => {
   resto = (soma * 10) % 11;
   if (resto === 10 || resto === 11) resto = 0;
   if (resto !== parseInt(limpo.substring(9, 10))) return false;
-  
+
   // Segundo dígito verificador
   soma = 0;
   for (let i = 1; i <= 10; i++) {
@@ -45,7 +45,7 @@ export const isCPFValido = (cpf: string): boolean => {
   resto = (soma * 10) % 11;
   if (resto === 10 || resto === 11) resto = 0;
   if (resto !== parseInt(limpo.substring(10, 11))) return false;
-  
+
   return true;
 };
 
@@ -72,7 +72,7 @@ export const isDocumentoValido = (doc: string): boolean => {
 export const LoginSchema = z.object({
   email: z.string().email('Email inválido'),
   senha: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
-}).strict();
+});
 
 export type LoginInput = z.infer<typeof LoginSchema>;
 
@@ -81,7 +81,7 @@ export const CriarUsuarioSchema = z.object({
   nome: z.string().min(3, 'Nome deve ter pelo menos 3 caracteres').transform((v) => v.toUpperCase()),
   email: z.string().email('Email inválido'),
   senha: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
-}).strict();
+});
 
 export type CriarUsuarioInput = z.infer<typeof CriarUsuarioSchema>;
 
@@ -97,7 +97,6 @@ export const CriarUsuarioAdminSchema = z
     telefone: z.string().min(8).optional(),
     documento: documentoSchema.optional(),
   })
-  .strict()
   .refine((data) => data.senha || data.senha_hash, {
     message: 'Senha ou senha_hash sao obrigatorios',
     path: ['senha'],
@@ -121,7 +120,6 @@ export const AtualizarUsuarioSchema = z
     token_recuperacao: z.string().optional(),
     token_expiracao: z.string().optional(),
   })
-  .strict()
   .refine((data) => Object.keys(data).length > 0, {
     message: 'Informe ao menos um campo para atualizar',
   });
@@ -156,7 +154,7 @@ export const CriarMotoristaSchema = z.object({
   rg: z.string().optional().nullable(),
   data_nascimento: z.string().optional().nullable(),
   veiculo_id: IdSchema.optional().nullable(),
-}).strict();
+});
 
 
 export type CriarMotoristaInput = z.infer<typeof CriarMotoristaSchema>;
@@ -202,7 +200,7 @@ export const CriarCaminhaoSchema = z.object({
   proprietario_tipo: z.enum(['PROPRIO', 'TERCEIRO', 'AGREGADO']).optional(),
   ultima_manutencao_data: z.string().optional(),
   proxima_manutencao_km: z.number().int().nonnegative().optional(),
-}).strict();
+});
 
 // Regras adicionais para criação de motorista:
 // - Se tipo for 'terceirizado' ou 'agregado', então `veiculo_id` é obrigatório no payload de criação.
@@ -282,7 +280,6 @@ export const CriarFreteSchema = z.object({
   resultado: z.number().optional(),
   pagamento_id: IdSchema.optional(),
 })
-  .strict()
   .refine((data) => !!(data.motorista_id ?? data.proprietario_id), {
     message: 'Proprietário do frete é obrigatório',
     path: ['proprietario_id'],
@@ -331,7 +328,6 @@ export const AtualizarFreteSchema = z
     resultado: z.number().optional(),
     pagamento_id: z.string().optional(),
   })
-  .strict()
   .transform((data) => ({
     ...data,
     motorista_id: data.motorista_id ?? data.proprietario_id,
@@ -363,7 +359,7 @@ export const CriarFazendaSchema = z.object({
   faturamento_total: z.number().nonnegative().optional(),
   ultimo_frete: z.string().optional(),
   colheita_finalizada: z.boolean().optional(),
-}).strict();
+});
 
 export type CriarFazendaInput = z.infer<typeof CriarFazendaSchema>;
 
@@ -383,7 +379,7 @@ export const IncrementarVolumeSchema = z.object({
   faturamento: z.coerce.number().nonnegative().optional(),
   faturamentoTotal: z.coerce.number().nonnegative().optional(),
   receita_total: z.coerce.number().nonnegative().optional(),
-}).strict().transform((data) => ({
+}).transform((data) => ({
   toneladas: data.toneladas,
   quantidadeSacas: data.quantidadeSacas ?? data.sacas ?? data.quantidade_sacas ?? 0,
   receitaTotal: data.receitaTotal ?? data.faturamentoTotal ?? data.faturamento ?? data.receita_total ?? 0,
@@ -406,7 +402,7 @@ export const CriarCustoSchema = z.object({
   rota: z.string().optional().transform(v => v ? v.toUpperCase() : v),
   litros: z.number().positive().optional(),
   tipo_combustivel: z.enum(['gasolina', 'diesel', 'etanol', 'gnv']).optional(),
-}).strict();
+});
 
 export type CriarCustoInput = z.infer<typeof CriarCustoSchema>;
 
@@ -438,7 +434,6 @@ export const CriarPagamentoSchema = z.object({
   comprovante_data_upload: z.string().optional(),
   observacoes: z.string().optional(),
 })
-  .strict()
   .refine((data) => !!(data.motorista_id ?? data.proprietario_id), {
     message: 'Proprietário é obrigatório',
     path: ['proprietario_id'],
@@ -474,7 +469,6 @@ export const AtualizarPagamentoSchema = z
     comprovante_data_upload: z.string().optional(),
     observacoes: z.string().optional(),
   })
-  .strict()
   .transform((data) => ({
     ...data,
     motorista_id: data.motorista_id ?? data.proprietario_id,

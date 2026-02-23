@@ -98,9 +98,9 @@ class _MotoristaController {
         banco, agencia, conta, tipo_conta, receita_gerada, viagens_realizadas
       ) VALUES (${new Array(16).fill('?').join(',')})`;
       const insertParams = [
-      payload.nome,
-      documentoLimpo,
-      payload.telefone,
+        payload.nome,
+        documentoLimpo,
+        payload.telefone,
         payload.email ?? null,
         payload.endereco ?? null,
         payload.status || 'ativo',
@@ -143,7 +143,7 @@ class _MotoristaController {
       const { id } = req.params;
       // Normalize empty strings to null for update payloads
       const cleanedRequest: any = { ...req.body };
-      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco', 'veiculo_id']
+      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco', 'veiculo_id', 'documento']
         .forEach((k) => {
           if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
         });
