@@ -1,13 +1,10 @@
-import dotenv from 'dotenv';
-// Carregar variáveis de ambiente o quanto antes
-dotenv.config();
-
 import express, { Express, Request, Response } from 'express';
 import compression from 'compression';
 import cors from 'cors';
 import { randomUUID } from 'crypto';
 import pino from 'pino';
 import pinoHttp from 'pino-http';
+import dotenv from 'dotenv';
 import path from 'path';
 import { errorHandler } from './middlewares/errorHandler';
 import pool from './database/connection';
@@ -25,7 +22,8 @@ import custoRoutes from './routes/custoRoutes';
 import pagamentoRoutes from './routes/pagamentoRoutes';
 import { AuthController } from './controllers';
 
-// Variáveis de ambiente já carregadas no topo do arquivo
+// Carregar variáveis de ambiente
+dotenv.config();
 
 const app: Express = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -218,35 +216,6 @@ app.use((req: Request, res: Response) => {
     success: false,
     message: 'Rota não encontrada',
     path: req.path,
-  });
-});
-
-// Rota temporária de debug de variáveis de ambiente
-// Só ativa se a var de ambiente ALLOW_DEBUG estiver exatamente 'true'
-app.get('/_debug/env', (_req: Request, res: Response) => {
-  if (String(process.env.ALLOW_DEBUG).toLowerCase() !== 'true') {
-    res.status(404).json({ success: false, message: 'Not found' });
-    return;
-  }
-
-  const mask = (s?: string | number | null) => {
-    if (!s && s !== 0) return null;
-    const str = String(s);
-    if (str.length <= 2) return '*'.repeat(str.length);
-    return str[0] + '*'.repeat(Math.max(3, str.length - 2)) + str[str.length - 1];
-  };
-
-  res.json({
-    success: true,
-    env: {
-      DB_HOST: process.env.DB_HOST || null,
-      DB_PORT: process.env.DB_PORT || null,
-      DB_USER: process.env.DB_USER || null,
-      DB_NAME: process.env.DB_NAME || null,
-      DB_PASSWORD_MASKED: mask(process.env.DB_PASSWORD),
-      NODE_ENV: process.env.NODE_ENV || null,
-      API_URL: process.env.API_URL || null,
-    },
   });
 });
 
