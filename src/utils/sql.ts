@@ -1,31 +1,50 @@
-export const buildUpdate = (
+export interface Pagination {
+  page: number;
+  limit: number;
+  offset: number;
+}
+
+export function getPagination(query: Record<string, unknown>): Pagination {
+  const page = Math.max(1, parseInt(query.page as string) || 1);
+  const limit = Math.max(1, parseInt(query.limit as string) || 10);
+  const offset = (page - 1) * limit;
+  return { page, limit, offset };
+}
+
+export function buildUpdate(
   data: Record<string, unknown>,
   allowedFields: string[]
-): { fields: string[]; values: unknown[] } => {
+): { fields: string[]; values: unknown[] } {
   const fields: string[] = [];
   const values: unknown[] = [];
 
-  for (const field of allowedFields) {
-    if (data[field] !== undefined) {
-      fields.push(`${field} = ?`);
-      values.push(data[field]);
+  for (const [key, value] of Object.entries(data)) {
+    if (allowedFields.includes(key) && value !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(value);
     }
   }
 
   return { fields, values };
-};
+}
 
-export const getPagination = (
-  query: Record<string, unknown>,
-  defaultLimit = 50,
-  maxLimit = 200
-): { page: number; limit: number; offset: number } => {
-  const rawPage = Number(query.page ?? 1);
-  const rawLimit = Number(query.limit ?? defaultLimit);
-  const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0
-    ? Math.min(Math.floor(rawLimit), maxLimit)
-    : defaultLimit;
-  const offset = (page - 1) * limit;
-  return { page, limit, offset };
-};
+export class QueryBuilder {
+  private whereClauses: string[] = [];
+  private params: unknown[] = [];
+
+  addCondition(condition: string, value: unknown): this {
+    if (value !== undefined && value !== null && value !== '') {
+      this.whereClauses.push(condition);
+      this.params.push(value);
+    }
+    return this;
+  }
+
+  build(baseQuery: string): { sql: string; params: unknown[] } {
+    let sql = baseQuery;
+    if (this.whereClauses.length > 0) {
+      sql += ' WHERE ' + this.whereClauses.join(' AND ');
+    }
+    return { sql, params: this.params };
+  }
+}

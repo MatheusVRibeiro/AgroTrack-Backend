@@ -16,7 +16,6 @@ const PAGAMENTO_FIELDS = [
   'valor_total',
   'data_pagamento',
   'status',
-  'metodo_pagamento',
   'comprovante_nome',
   'comprovante_url',
   'comprovante_data_upload',
@@ -24,6 +23,42 @@ const PAGAMENTO_FIELDS = [
 ];
 
 export class PagamentoController {
+  private montarFavorecido(motorista: {
+    id: number;
+    nome: string;
+    documento?: string | null;
+    tipo_pagamento: 'pix' | 'transferencia_bancaria';
+    chave_pix_tipo?: string | null;
+    chave_pix?: string | null;
+    banco?: string | null;
+    agencia?: string | null;
+    conta?: string | null;
+    tipo_conta?: string | null;
+  }) {
+    return {
+      id: motorista.id,
+      nome: motorista.nome,
+      documento: motorista.documento || null,
+      metodo_pagamento: motorista.tipo_pagamento,
+      dados_pix:
+        motorista.tipo_pagamento === 'pix'
+          ? {
+              tipo_chave: motorista.chave_pix_tipo || null,
+              chave: motorista.chave_pix || null,
+            }
+          : null,
+      dados_bancarios:
+        motorista.tipo_pagamento === 'transferencia_bancaria'
+          ? {
+              banco: motorista.banco || null,
+              agencia: motorista.agencia || null,
+              conta: motorista.conta || null,
+              tipo_conta: motorista.tipo_conta || null,
+            }
+          : null,
+    };
+  }
+
   // Gerar próximo ID sequencial de pagamento (PAG-2026-001, PAG-2026-002...)
   private async gerarProximoIdPagamento(): Promise<string> {
     const anoAtual = new Date().getFullYear();
@@ -51,17 +86,76 @@ export class PagamentoController {
   async listar(req: Request, res: Response): Promise<void> {
     try {
       const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
-      const [rowsResult, countResult] = await Promise.all([
-        pool.execute(`SELECT * FROM pagamentos ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`),
+      const [rowsResult, countResult, resumoResult] = await Promise.all([
+        pool.execute(
+          `SELECT 
+            p.*, 
+            p.motorista_id as proprietario_id,
+            p.motorista_nome as proprietario_nome,
+            m.tipo as proprietario_tipo,
+            m.documento as favorecido_documento,
+            m.tipo_pagamento as favorecido_metodo_pagamento,
+            m.chave_pix_tipo as favorecido_chave_pix_tipo,
+            m.chave_pix as favorecido_chave_pix,
+            m.banco as favorecido_banco,
+            m.agencia as favorecido_agencia,
+            m.conta as favorecido_conta,
+            m.tipo_conta as favorecido_tipo_conta,
+            CASE WHEN m.tipo = 'proprio' THEN 'GUIA_INTERNA' ELSE 'PAGAMENTO_TERCEIRO' END as tipo_relatorio
+           FROM pagamentos p
+           LEFT JOIN motoristas m ON m.id = p.motorista_id
+           ORDER BY p.created_at DESC
+           LIMIT ${limit} OFFSET ${offset}`
+        ),
         pool.execute('SELECT COUNT(*) as total FROM pagamentos'),
+        pool.execute(
+          `SELECT
+            f.motorista_id as proprietario_id,
+            COALESCE(MAX(f.motorista_nome), MAX(m.nome)) as proprietario_nome,
+            MAX(m.tipo) as proprietario_tipo,
+            CASE WHEN MAX(m.tipo) = 'proprio' THEN 'GUIA_INTERNA' ELSE 'PAGAMENTO_TERCEIRO' END as tipo_relatorio,
+            COUNT(*) as quantidade_fretes,
+            SUM(f.toneladas) as total_toneladas,
+            SUM(f.receita) as valor_total,
+            SUM(COALESCE(f.custos, 0)) as total_custos,
+            SUM(COALESCE(f.resultado, f.receita - COALESCE(f.custos, 0))) as resultado_total
+          FROM fretes f
+          LEFT JOIN motoristas m ON m.id = f.motorista_id
+          WHERE f.pagamento_id IS NOT NULL
+          GROUP BY f.motorista_id
+          ORDER BY proprietario_nome ASC`
+        ),
       ]);
-      const rows = rowsResult[0];
+      const rows = (rowsResult[0] as Array<Record<string, unknown>>).map((row) => {
+        const favorecido = this.montarFavorecido({
+          id: Number(row.motorista_id),
+          nome: String(row.motorista_nome || ''),
+          documento: row.favorecido_documento as string | null,
+          tipo_pagamento: String(row.favorecido_metodo_pagamento || 'pix') as
+            | 'pix'
+            | 'transferencia_bancaria',
+          chave_pix_tipo: row.favorecido_chave_pix_tipo as string | null,
+          chave_pix: row.favorecido_chave_pix as string | null,
+          banco: row.favorecido_banco as string | null,
+          agencia: row.favorecido_agencia as string | null,
+          conta: row.favorecido_conta as string | null,
+          tipo_conta: row.favorecido_tipo_conta as string | null,
+        });
+
+        return {
+          ...row,
+          metodo_pagamento: favorecido.metodo_pagamento,
+          favorecido,
+        };
+      });
+      const resumoFretesPorProprietario = resumoResult[0];
       const total = (countResult[0] as Array<{ total: number }>)[0]?.total ?? 0;
       const totalPages = Math.max(1, Math.ceil(total / limit));
       res.json({
         success: true,
         message: 'Pagamentos listados com sucesso',
         data: rows,
+        resumo_fretes_por_proprietario: resumoFretesPorProprietario,
         meta: { page, limit, total, totalPages },
       } as ApiResponse<unknown>);
     } catch (error) {
@@ -75,7 +169,25 @@ export class PagamentoController {
   async obterPorId(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const [rows] = await pool.execute('SELECT * FROM pagamentos WHERE id = ? LIMIT 1', [id]);
+      const [rows] = await pool.execute(
+        `SELECT 
+          p.*,
+          m.tipo as proprietario_tipo,
+          m.documento as favorecido_documento,
+          m.tipo_pagamento as favorecido_metodo_pagamento,
+          m.chave_pix_tipo as favorecido_chave_pix_tipo,
+          m.chave_pix as favorecido_chave_pix,
+          m.banco as favorecido_banco,
+          m.agencia as favorecido_agencia,
+          m.conta as favorecido_conta,
+          m.tipo_conta as favorecido_tipo_conta,
+          CASE WHEN m.tipo = 'proprio' THEN 'GUIA_INTERNA' ELSE 'PAGAMENTO_TERCEIRO' END as tipo_relatorio
+        FROM pagamentos p
+        LEFT JOIN motoristas m ON m.id = p.motorista_id
+        WHERE p.id = ?
+        LIMIT 1`,
+        [id]
+      );
       const pagamentos = rows as unknown[];
 
       if (pagamentos.length === 0) {
@@ -86,10 +198,30 @@ export class PagamentoController {
         return;
       }
 
+      const pagamento = pagamentos[0] as Record<string, unknown>;
+      const favorecido = this.montarFavorecido({
+        id: Number(pagamento.motorista_id),
+        nome: String(pagamento.motorista_nome || ''),
+        documento: pagamento.favorecido_documento as string | null,
+        tipo_pagamento: String(pagamento.favorecido_metodo_pagamento || 'pix') as
+          | 'pix'
+          | 'transferencia_bancaria',
+        chave_pix_tipo: pagamento.favorecido_chave_pix_tipo as string | null,
+        chave_pix: pagamento.favorecido_chave_pix as string | null,
+        banco: pagamento.favorecido_banco as string | null,
+        agencia: pagamento.favorecido_agencia as string | null,
+        conta: pagamento.favorecido_conta as string | null,
+        tipo_conta: pagamento.favorecido_tipo_conta as string | null,
+      });
+
       res.json({
         success: true,
         message: 'Pagamento carregado com sucesso',
-        data: pagamentos[0],
+        data: {
+          ...pagamento,
+          metodo_pagamento: favorecido.metodo_pagamento,
+          favorecido,
+        },
       } as ApiResponse<unknown>);
     } catch (error) {
       res.status(500).json({
@@ -140,6 +272,46 @@ export class PagamentoController {
       const codigoPagamento = (payload.id && typeof payload.id === 'string') ? payload.id : await this.gerarProximoIdPagamento();
       const status = payload.status || 'pendente';
 
+      const [motoristaRows] = await pool.execute(
+        `SELECT
+          id,
+          nome,
+          documento,
+          tipo,
+          tipo_pagamento,
+          chave_pix_tipo,
+          chave_pix,
+          banco,
+          agencia,
+          conta,
+          tipo_conta
+         FROM motoristas
+         WHERE id = ?
+         LIMIT 1`,
+        [payload.motorista_id]
+      );
+      const motoristas = motoristaRows as Array<{
+        id: number;
+        nome: string;
+        documento: string | null;
+        tipo: 'proprio' | 'terceirizado' | 'agregado';
+        tipo_pagamento: 'pix' | 'transferencia_bancaria';
+        chave_pix_tipo: string | null;
+        chave_pix: string | null;
+        banco: string | null;
+        agencia: string | null;
+        conta: string | null;
+        tipo_conta: string | null;
+      }>;
+      if (motoristas.length === 0) {
+        res.status(400).json({ success: false, message: 'Proprietário não encontrado' } as ApiResponse<null>);
+        return;
+      }
+      const motorista = motoristas[0];
+      const tipoRelatorio = motorista.tipo === 'proprio' ? 'GUIA_INTERNA' : 'PAGAMENTO_TERCEIRO';
+      const metodoPagamento = motorista.tipo_pagamento;
+      const favorecido = this.montarFavorecido(motorista);
+
       // Inserir pagamento dentro de transação e vincular fretes
       const conn = await pool.getConnection();
       try {
@@ -163,7 +335,7 @@ export class PagamentoController {
             payload.valor_total,
             payload.data_pagamento,
             status,
-            payload.metodo_pagamento,
+            metodoPagamento,
             payload.comprovante_nome || null,
             payload.comprovante_url || null,
             payload.comprovante_data_upload || null,
@@ -183,7 +355,15 @@ export class PagamentoController {
         res.status(201).json({
           success: true,
           message: 'Pagamento criado com sucesso',
-          data: { id: insertId, codigo_pagamento: codigoPagamento },
+          data: {
+            id: insertId,
+            codigo_pagamento: codigoPagamento,
+            proprietario_id: payload.motorista_id,
+            proprietario_nome: payload.motorista_nome,
+            tipo_relatorio: tipoRelatorio,
+            metodo_pagamento: metodoPagamento,
+            favorecido,
+          },
         } as ApiResponse<{ id: number; codigo_pagamento: string }>);
         return;
       } catch (txError) {
@@ -208,6 +388,14 @@ export class PagamentoController {
   async atualizar(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      if (Object.prototype.hasOwnProperty.call(req.body, 'metodo_pagamento')) {
+        res.status(400).json({
+          success: false,
+          message: 'metodo_pagamento não pode ser alterado manualmente. Ele é definido no cadastro do motorista.',
+        } as ApiResponse<null>);
+        return;
+      }
+
       const payload = AtualizarPagamentoSchema.parse(req.body);
       const { fields, values } = buildUpdate(payload as Record<string, unknown>, PAGAMENTO_FIELDS);
 
@@ -249,12 +437,19 @@ export class PagamentoController {
   }
 
   async deletar(req: Request, res: Response): Promise<void> {
+    const connection = await pool.getConnection();
     try {
       const { id } = req.params;
-      const [result] = await pool.execute('DELETE FROM pagamentos WHERE id = ?', [id]);
-      const info = result as { affectedRows: number };
 
-      if (info.affectedRows === 0) {
+      await connection.beginTransaction();
+
+      // Verificar se o pagamento existe
+      const [pagRows] = await connection.execute(
+        'SELECT id FROM pagamentos WHERE id = ? LIMIT 1',
+        [id]
+      );
+      if ((pagRows as unknown[]).length === 0) {
+        await connection.rollback();
         res.status(404).json({
           success: false,
           message: 'Pagamento nao encontrado',
@@ -262,15 +457,29 @@ export class PagamentoController {
         return;
       }
 
+      // Resetar pagamento_id nos fretes vinculados
+      await connection.execute(
+        'UPDATE fretes SET pagamento_id = NULL WHERE pagamento_id = ?',
+        [id]
+      );
+
+      // Deletar o pagamento
+      await connection.execute('DELETE FROM pagamentos WHERE id = ?', [id]);
+
+      await connection.commit();
+
       res.json({
         success: true,
         message: 'Pagamento removido com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
+      await connection.rollback();
       res.status(500).json({
         success: false,
         message: 'Erro ao remover pagamento',
       } as ApiResponse<null>);
+    } finally {
+      connection.release();
     }
   }
 

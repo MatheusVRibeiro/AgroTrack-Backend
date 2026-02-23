@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import pool from '../database/connection';
 import { generateToken } from '../middlewares/auth';
 import { CriarUsuarioSchema, LoginSchema } from '../utils/validators';
 import { sendValidationError } from '../utils/validation';
+import { sendResetPasswordEmail, sendPasswordResetSuccessEmail } from '../services/EmailService';
 import { ApiResponse } from '../types';
 
 export class AuthController {
@@ -236,4 +238,175 @@ export class AuthController {
       } as ApiResponse<null>);
     }
   }
+
+  /**
+   * Solicitar recuperação de senha via email
+   */
+  async forgotPassword(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('📧 [FORGOT PASSWORD] Requisição recebida');
+      const { email } = req.body;
+
+      // Validação básica
+      if (!email || typeof email !== 'string') {
+        res.status(400).json({
+          success: false,
+          message: 'Email é obrigatório',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Procurar usuário
+      const [rows] = await pool.execute('SELECT id, nome, email FROM usuarios WHERE email = ? LIMIT 1', [email]);
+      const usuarios = rows as Array<{ id: number; nome: string; email: string }>;
+
+      if (usuarios.length === 0) {
+        // Por segurança, não revelar se o email existe ou não
+        console.log('⚠️ [FORGOT PASSWORD] Email não encontrado:', email);
+        res.json({
+          success: true,
+          message: 'Se o email estiver registrado, você receberá um link de recuperação em breve.',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      const usuario = usuarios[0];
+      console.log('✅ [FORGOT PASSWORD] Usuário encontrado:', usuario.email);
+
+      // Gerar token de recuperação (40 caracteres randômicos em hexadecimal)
+      const tokenRecuperacao = randomBytes(20).toString('hex');
+      const tokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+
+      console.log('🔑 [FORGOT PASSWORD] Token gerado. Expira em:', tokenExpiresAt);
+
+      // Armazenar token no banco
+      await pool.execute(
+        `UPDATE usuarios 
+         SET token_recuperacao = ?, token_expiracao = ?
+         WHERE id = ?`,
+        [tokenRecuperacao, tokenExpiresAt, usuario.id]
+      );
+
+      console.log('💾 [FORGOT PASSWORD] Token armazenado no banco');
+
+      // Enviar email
+      try {
+        await sendResetPasswordEmail(usuario.email, tokenRecuperacao, usuario.nome);
+        console.log('📧 [FORGOT PASSWORD] Email enviado com sucesso');
+      } catch (emailError) {
+        console.error('💥 [FORGOT PASSWORD] Erro ao enviar email:', emailError);
+        // Mesmo com erro de email, responder que enviamos (não revelar détalhes)
+      }
+
+      res.json({
+        success: true,
+        message: 'Se o email estiver registrado, você receberá um link de recuperação em breve.',
+      } as ApiResponse<null>);
+    } catch (error) {
+      console.error('💥 [FORGOT PASSWORD] Erro inesperado:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao processar recuperação de senha',
+      } as ApiResponse<null>);
+    }
+  }
+
+  /**
+   * Redefinir senha com token de recuperação
+   */
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('🔐 [RESET PASSWORD] Requisição recebida');
+      const { token, novaSenha, confirmaSenha } = req.body;
+
+      // Validação básica
+      if (!token || !novaSenha || !confirmaSenha) {
+        res.status(400).json({
+          success: false,
+          message: 'Token, nova senha e confirmação são obrigatórios',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Validar senhas
+      if (novaSenha !== confirmaSenha) {
+        res.status(400).json({
+          success: false,
+          message: 'As senhas não conferem',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Validar força da senha - mínimo 6 caracteres
+      if (novaSenha.length < 6) {
+        res.status(400).json({
+          success: false,
+          message: 'A senha deve ter pelo menos 6 caracteres',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      // Procurar usuário com token válido
+      const [rows] = await pool.execute(
+        `SELECT id, nome, email FROM usuarios 
+         WHERE token_recuperacao = ? 
+         AND token_expiracao > NOW()
+         LIMIT 1`,
+        [token]
+      );
+
+      const usuarios = rows as Array<{ id: number; nome: string; email: string }>;
+
+      if (usuarios.length === 0) {
+        console.log('❌ [RESET PASSWORD] Token inválido ou expirado');
+        res.status(400).json({
+          success: false,
+          message: 'Token inválido ou expirado. Solicite uma nova recuperação.',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      const usuario = usuarios[0];
+      console.log('✅ [RESET PASSWORD] Token válido para usuário:', usuario.email);
+
+      // Hash da nova senha
+      console.log('🔐 [RESET PASSWORD] Gerando hash da nova senha...');
+      const senhaHash = await bcrypt.hash(novaSenha, 10);
+
+      // Atualizar senha e limpar token
+      await pool.execute(
+        `UPDATE usuarios 
+         SET senha_hash = ?, token_recuperacao = NULL, token_expiracao = NULL
+         WHERE id = ?`,
+        [senhaHash, usuario.id]
+      );
+
+      console.log('✅ [RESET PASSWORD] Senha atualizada com sucesso');
+
+      // Enviar email de confirmação
+      try {
+        await sendPasswordResetSuccessEmail(usuario.email, usuario.nome);
+        console.log('📧 [RESET PASSWORD] Email de confirmação enviado');
+      } catch (emailError) {
+        console.error('⚠️ [RESET PASSWORD] Erro ao enviar email de confirmação:', emailError);
+        // Continuar mesmo se falhar, pois a senha já foi alterada
+      }
+
+      res.json({
+        success: true,
+        message: 'Senha redefinida com sucesso. Você pode fazer login agora.',
+      } as ApiResponse<null>);
+    } catch (error) {
+      if (sendValidationError(res, error)) {
+        return;
+      }
+
+      console.error('💥 [RESET PASSWORD] Erro inesperado:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao redefinir senha',
+      } as ApiResponse<null>);
+    }
+  }
 }
+

@@ -259,8 +259,10 @@ export const CriarFreteSchema = z.object({
   id: IdSchema.optional(),
   origem: z.string().min(3, 'Origem deve ter pelo menos 3 caracteres').transform(v => v.toUpperCase()),
   destino: z.string().min(3, 'Destino deve ter pelo menos 3 caracteres').transform(v => v.toUpperCase()),
-  motorista_id: IdSchema,
-  motorista_nome: z.string().min(3).transform(v => v.toUpperCase()),
+  motorista_id: IdSchema.optional(),
+  proprietario_id: IdSchema.optional(),
+  motorista_nome: z.string().min(3).transform(v => v.toUpperCase()).optional(),
+  proprietario_nome: z.string().min(3).transform(v => v.toUpperCase()).optional(),
   caminhao_id: IdSchema,
   caminhao_placa: z.string().min(5).transform(v => v.toUpperCase()),
   ticket: z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
@@ -281,12 +283,22 @@ export const CriarFreteSchema = z.object({
   pagamento_id: IdSchema.optional(),
 })
   .strict()
+  .refine((data) => !!(data.motorista_id ?? data.proprietario_id), {
+    message: 'Proprietário do frete é obrigatório',
+    path: ['proprietario_id'],
+  })
+  .refine((data) => !!(data.motorista_nome ?? data.proprietario_nome), {
+    message: 'Nome do proprietário é obrigatório',
+    path: ['proprietario_nome'],
+  })
   .refine((data) => !!(data.data_frete ?? data.dataFrete), {
     message: 'Data do frete é obrigatória',
     path: ['data_frete'],
   })
   .transform((data) => ({
     ...data,
+    motorista_id: data.motorista_id ?? data.proprietario_id,
+    motorista_nome: data.motorista_nome ?? data.proprietario_nome,
     data_frete: data.data_frete ?? data.dataFrete,
   }));
 
@@ -297,7 +309,9 @@ export const AtualizarFreteSchema = z
     origem: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
     destino: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
     motorista_id: IdSchema.optional(),
+    proprietario_id: IdSchema.optional(),
     motorista_nome: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
+    proprietario_nome: z.string().min(3).optional().transform(v => v ? v.toUpperCase() : v),
     caminhao_id: IdSchema.optional(),
     caminhao_placa: z.string().min(5).optional().transform(v => v ? v.toUpperCase() : v),
     ticket: z.string().regex(/^\d+$/, 'Ticket deve conter apenas números').optional().nullable(),
@@ -320,6 +334,8 @@ export const AtualizarFreteSchema = z
   .strict()
   .transform((data) => ({
     ...data,
+    motorista_id: data.motorista_id ?? data.proprietario_id,
+    motorista_nome: data.motorista_nome ?? data.proprietario_nome,
     data_frete: data.data_frete ?? data.dataFrete,
   }))
   .refine((data) => Object.keys(data).length > 0, {
@@ -404,8 +420,10 @@ export type AtualizarCustoInput = z.infer<typeof AtualizarCustoSchema>;
 // ==================== PAGAMENTO ====================
 export const CriarPagamentoSchema = z.object({
   id: IdSchema.optional(),
-  motorista_id: z.union([z.string().min(1), z.number().int().positive()]),
-  motorista_nome: z.string().min(3).transform(v => v.toUpperCase()),
+  motorista_id: z.union([z.string().min(1), z.number().int().positive()]).optional(),
+  proprietario_id: z.union([z.string().min(1), z.number().int().positive()]).optional(),
+  motorista_nome: z.string().min(3).transform(v => v.toUpperCase()).optional(),
+  proprietario_nome: z.string().min(3).transform(v => v.toUpperCase()).optional(),
   periodo_fretes: z.string().min(3).transform(v => v.toUpperCase()),
   quantidade_fretes: z.number().int().positive(),
   fretes_incluidos: z.string().optional(),
@@ -414,18 +432,57 @@ export const CriarPagamentoSchema = z.object({
   valor_total: z.number().positive(),
   data_pagamento: z.string().min(1),
   status: z.enum(['pendente', 'processando', 'pago', 'cancelado']).optional(),
-  metodo_pagamento: z.enum(['pix', 'transferencia_bancaria']),
+  metodo_pagamento: z.enum(['pix', 'transferencia_bancaria']).optional(),
   comprovante_nome: z.string().optional(),
   comprovante_url: z.string().optional(),
   comprovante_data_upload: z.string().optional(),
   observacoes: z.string().optional(),
-}).strict();
+})
+  .strict()
+  .refine((data) => !!(data.motorista_id ?? data.proprietario_id), {
+    message: 'Proprietário é obrigatório',
+    path: ['proprietario_id'],
+  })
+  .refine((data) => !!(data.motorista_nome ?? data.proprietario_nome), {
+    message: 'Nome do proprietário é obrigatório',
+    path: ['proprietario_nome'],
+  })
+  .transform((data) => ({
+    ...data,
+    motorista_id: data.motorista_id ?? data.proprietario_id,
+    motorista_nome: data.motorista_nome ?? data.proprietario_nome,
+  }));
 
 export type CriarPagamentoInput = z.infer<typeof CriarPagamentoSchema>;
 
-export const AtualizarPagamentoSchema = CriarPagamentoSchema.partial().refine(
-  (data) => Object.keys(data).length > 0,
-  { message: 'Informe ao menos um campo para atualizar' }
-);
+export const AtualizarPagamentoSchema = z
+  .object({
+    motorista_id: z.union([z.string().min(1), z.number().int().positive()]).optional(),
+    proprietario_id: z.union([z.string().min(1), z.number().int().positive()]).optional(),
+    motorista_nome: z.string().min(3).transform(v => v.toUpperCase()).optional(),
+    proprietario_nome: z.string().min(3).transform(v => v.toUpperCase()).optional(),
+    periodo_fretes: z.string().min(3).transform(v => v.toUpperCase()).optional(),
+    quantidade_fretes: z.number().int().positive().optional(),
+    fretes_incluidos: z.string().optional(),
+    total_toneladas: z.number().positive().optional(),
+    valor_por_tonelada: z.number().positive().optional(),
+    valor_total: z.number().positive().optional(),
+    data_pagamento: z.string().min(1).optional(),
+    status: z.enum(['pendente', 'processando', 'pago', 'cancelado']).optional(),
+    comprovante_nome: z.string().optional(),
+    comprovante_url: z.string().optional(),
+    comprovante_data_upload: z.string().optional(),
+    observacoes: z.string().optional(),
+  })
+  .strict()
+  .transform((data) => ({
+    ...data,
+    motorista_id: data.motorista_id ?? data.proprietario_id,
+    motorista_nome: data.motorista_nome ?? data.proprietario_nome,
+  }))
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    { message: 'Informe ao menos um campo para atualizar' }
+  );
 
 export type AtualizarPagamentoInput = z.infer<typeof AtualizarPagamentoSchema>;

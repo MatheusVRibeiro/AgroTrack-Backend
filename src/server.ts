@@ -193,6 +193,10 @@ app.get('/login', (_req: Request, res: Response) => {
 app.post('/login', (req: Request, res: Response) => authController.login(req, res));
 app.post('/registrar', (req: Request, res: Response) => authController.registrar(req, res));
 
+// Rotas de recuperação de senha (conveniência - sem /auth prefix)
+app.post('/recuperar-senha', (req: Request, res: Response) => authController.forgotPassword(req, res));
+app.post('/redefinir-senha', (req: Request, res: Response) => authController.resetPassword(req, res));
+
 // Auth routes (mounted at /auth if needed)
 app.use('/auth', authRoutes);
 

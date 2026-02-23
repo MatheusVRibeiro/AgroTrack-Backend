@@ -310,12 +310,18 @@ export class FrotaController {
   }
 
   async deletar(req: Request, res: Response): Promise<void> {
+    const connection = await pool.getConnection();
     try {
       const { id } = req.params;
-      const [result] = await pool.execute('DELETE FROM frota WHERE id = ?', [id]);
-      const info = result as { affectedRows: number };
 
-      if (info.affectedRows === 0) {
+      await connection.beginTransaction();
+
+      const [veiRows] = await connection.execute(
+        'SELECT id FROM frota WHERE id = ? LIMIT 1',
+        [id]
+      );
+      if ((veiRows as unknown[]).length === 0) {
+        await connection.rollback();
         res.status(404).json({
           success: false,
           message: 'Veiculo nao encontrado',
@@ -323,15 +329,29 @@ export class FrotaController {
         return;
       }
 
+      // Desassociar fretes que referenciam este veículo
+      await connection.execute(
+        'UPDATE fretes SET caminhao_id = NULL, caminhao_placa = NULL WHERE caminhao_id = ?',
+        [id]
+      );
+
+      // Deletar o veículo
+      await connection.execute('DELETE FROM frota WHERE id = ?', [id]);
+
+      await connection.commit();
+
       res.json({
         success: true,
         message: 'Veiculo removido com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
+      await connection.rollback();
       res.status(500).json({
         success: false,
         message: 'Erro ao remover veiculo',
       } as ApiResponse<null>);
+    } finally {
+      connection.release();
     }
   }
 }

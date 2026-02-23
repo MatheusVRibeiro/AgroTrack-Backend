@@ -143,7 +143,7 @@ class _MotoristaController {
       const { id } = req.params;
       // Normalize empty strings to null for update payloads
       const cleanedRequest: any = { ...req.body };
-      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco']
+      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco', 'veiculo_id']
         .forEach((k) => {
           if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
         });
@@ -190,12 +190,18 @@ class _MotoristaController {
   }
 
   async deletar(req: Request, res: Response): Promise<void> {
+    const connection = await pool.getConnection();
     try {
       const { id } = req.params;
-      const [result] = await pool.execute('DELETE FROM motoristas WHERE id = ?', [id]);
-      const info = result as { affectedRows: number };
 
-      if (info.affectedRows === 0) {
+      await connection.beginTransaction();
+
+      const [motRows] = await connection.execute(
+        'SELECT id FROM motoristas WHERE id = ? LIMIT 1',
+        [id]
+      );
+      if ((motRows as unknown[]).length === 0) {
+        await connection.rollback();
         res.status(404).json({
           success: false,
           message: 'Motorista nao encontrado',
@@ -203,15 +209,29 @@ class _MotoristaController {
         return;
       }
 
+      // Desvincular veículos que tinham este motorista como fixo
+      await connection.execute(
+        'UPDATE frota SET motorista_fixo_id = NULL WHERE motorista_fixo_id = ?',
+        [id]
+      );
+
+      // Deletar o motorista
+      await connection.execute('DELETE FROM motoristas WHERE id = ?', [id]);
+
+      await connection.commit();
+
       res.json({
         success: true,
         message: 'Motorista removido com sucesso',
       } as ApiResponse<null>);
     } catch (error) {
+      await connection.rollback();
       res.status(500).json({
         success: false,
         message: 'Erro ao remover motorista',
       } as ApiResponse<null>);
+    } finally {
+      connection.release();
     }
   }
 
