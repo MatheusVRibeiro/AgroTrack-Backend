@@ -20,7 +20,6 @@ const FRETE_FIELDS = [
   'fazenda_id',
   'fazenda_nome',
   'mercadoria',
-  'mercadoria_id',
   'variedade',
   'data_frete',
   'quantidade_sacas',
@@ -447,7 +446,9 @@ export class FreteController {
   async atualizar(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      console.log('[FRETE][ATUALIZAR][PAYLOAD RECEBIDO]', req.body);
       const payload = AtualizarFreteSchema.parse(req.body);
+      console.log('[FRETE][ATUALIZAR][PAYLOAD VALIDADO]', payload);
       const data = { ...payload } as Record<string, unknown>;
 
       // Validar se motorista existe (se fornecido)
@@ -587,10 +588,11 @@ export class FreteController {
       if (sendValidationError(res, error)) {
         return;
       }
-
+      console.error("[FRETE][ATUALIZAR][ERRO 500]", error);
       res.status(500).json({
         success: false,
         message: 'Erro ao atualizar frete',
+        error: String(error)
       } as ApiResponse<null>);
     }
   }

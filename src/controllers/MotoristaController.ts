@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import pool from '../database/connection';
 import { ApiResponse } from '../types';
 import { buildUpdate, getPagination } from '../utils/sql';
-import { AtualizarMotoristaSchemaWithVinculo, CriarMotoristaSchemaWithVinculo, sanitizarDocumento } from '../utils/validators';
+import { AtualizarMotoristaSchema, CriarMotoristaSchema, sanitizarDocumento } from '../utils/validators';
 import { sendValidationError } from '../utils/validation';
 
 const MOTORISTA_FIELDS = [
@@ -88,7 +88,15 @@ class _MotoristaController {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      const payload = CriarMotoristaSchemaWithVinculo.parse(req.body);
+
+      // Normalize empty strings to null for create payloads
+      const cleanedRequest: any = { ...req.body };
+      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco', 'veiculo_id', 'documento', 'cnh', 'cnh_validade', 'cnh_categoria', 'data_admissao', 'data_desligamento', 'chave_pix_tipo', 'caminhao_atual', 'rg', 'data_nascimento']
+        .forEach((k) => {
+          if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
+        });
+
+      const payload = CriarMotoristaSchema.parse(cleanedRequest);
       // 1. INSERT sem o campo codigo_motorista
       // Certifique-se de que a coluna codigo_motorista no MySQL permite NULL
       const documentoLimpo = payload.documento ? sanitizarDocumento(String(payload.documento)) : null;
@@ -143,12 +151,12 @@ class _MotoristaController {
       const { id } = req.params;
       // Normalize empty strings to null for update payloads
       const cleanedRequest: any = { ...req.body };
-      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco', 'veiculo_id', 'documento']
+      ['email', 'banco', 'agencia', 'conta', 'chave_pix', 'tipo_conta', 'endereco', 'veiculo_id', 'documento', 'cnh', 'cnh_validade', 'cnh_categoria', 'data_admissao', 'data_desligamento', 'chave_pix_tipo', 'caminhao_atual', 'rg', 'data_nascimento']
         .forEach((k) => {
           if (k in cleanedRequest && cleanedRequest[k] === '') cleanedRequest[k] = null;
         });
 
-      const payload = AtualizarMotoristaSchemaWithVinculo.parse(cleanedRequest) as any;
+      const payload = AtualizarMotoristaSchema.parse(cleanedRequest) as any;
 
       const { fields, values } = buildUpdate(payload as Record<string, unknown>, MOTORISTA_FIELDS);
 
