@@ -117,10 +117,24 @@ export class CustoController {
       try {
         await connection.beginTransaction();
 
-        const [freteRows] = await connection.execute('SELECT id, pagamento_id FROM fretes WHERE id = ? LIMIT 1', [
-          freteId,
-        ]);
-        const fretes = freteRows as Array<{ id: number; pagamento_id: number | null }>;
+        const [freteRows] = await connection.execute(
+          `SELECT f.id, f.pagamento_id, f.motorista_nome,
+                  COALESCE(f.motorista_nome, m.nome) as proprietario_nome,
+                  f.caminhao_placa, f.origem, f.destino
+           FROM fretes f
+           LEFT JOIN motoristas m ON m.id = f.motorista_id
+           WHERE f.id = ? LIMIT 1`,
+          [freteId]
+        );
+        const fretes = freteRows as Array<{
+          id: number;
+          pagamento_id: number | null;
+          motorista_nome: string | null;
+          proprietario_nome: string | null;
+          caminhao_placa: string | null;
+          origem: string | null;
+          destino: string | null;
+        }>;
 
         if (fretes.length === 0) {
           await connection.rollback();
@@ -143,6 +157,11 @@ export class CustoController {
         const createdIds: number[] = [];
         let totalValor = 0;
 
+        const freteData = fretes[0];
+        const defaultMotorista = freteData.motorista_nome || freteData.proprietario_nome || null;
+        const defaultCaminhao = freteData.caminhao_placa || null;
+        const defaultRota = freteData.origem && freteData.destino ? `${freteData.origem} → ${freteData.destino}` : null;
+
         for (const payload of payloads) {
           const [result]: any = await connection.execute(
             `INSERT INTO custos (
@@ -157,9 +176,9 @@ export class CustoController {
               payload.data,
               payload.comprovante || false,
               payload.observacoes || null,
-              payload.motorista || null,
-              payload.caminhao || null,
-              payload.rota || null,
+              payload.motorista || defaultMotorista || null,
+              payload.caminhao || defaultCaminhao || null,
+              payload.rota || defaultRota || null,
               payload.litros || null,
               payload.tipo_combustivel || null,
             ]
@@ -169,11 +188,11 @@ export class CustoController {
         }
 
         await connection.execute(
-          `UPDATE fretes
-           SET custos = GREATEST(0, IFNULL(custos, 0) + ?),
-               resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) + ?)
-           WHERE id = ?`,
-          [totalValor, totalValor, freteId]
+          `UPDATE fretes f
+           SET custos = COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0),
+               resultado = IFNULL(receita, 0) - COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0)
+           WHERE f.id = ?`,
+          [freteId]
         );
 
         await connection.commit();
@@ -272,7 +291,6 @@ export class CustoController {
 
         const novoFreteId =
           payload.frete_id !== undefined ? Number(payload.frete_id) : Number(atual.frete_id);
-        const novoValor = payload.valor !== undefined ? Number(payload.valor) : Number(atual.valor);
 
         if (payload.frete_id !== undefined && payload.frete_id !== atual.frete_id) {
           const [freteRows] = await connection.execute(
@@ -307,31 +325,30 @@ export class CustoController {
         await connection.execute(sql, values);
 
         if (Number(atual.frete_id) === Number(novoFreteId)) {
-          const deltaValor = novoValor - Number(atual.valor || 0);
-          if (deltaValor !== 0) {
-            await connection.execute(
-              `UPDATE fretes
-               SET custos = GREATEST(0, IFNULL(custos, 0) + ?),
-                   resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) + ?)
-               WHERE id = ?`,
-              [deltaValor, deltaValor, atual.frete_id]
-            );
-          }
-        } else {
+          // mesma frete: recalcular custos do próprio frete
           await connection.execute(
-            `UPDATE fretes
-             SET custos = GREATEST(0, IFNULL(custos, 0) - ?),
-                 resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) - ?)
-             WHERE id = ?`,
-            [atual.valor, atual.valor, atual.frete_id]
+            `UPDATE fretes f
+             SET custos = COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0),
+                 resultado = IFNULL(receita, 0) - COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0)
+             WHERE f.id = ?`,
+            [atual.frete_id]
+          );
+        } else {
+          // frete diferente: recalcular em ambos os fretes envolvidos
+          await connection.execute(
+            `UPDATE fretes f
+             SET custos = COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0),
+                 resultado = IFNULL(receita, 0) - COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0)
+             WHERE f.id = ?`,
+            [atual.frete_id]
           );
 
           await connection.execute(
-            `UPDATE fretes
-             SET custos = GREATEST(0, IFNULL(custos, 0) + ?),
-                 resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) + ?)
-             WHERE id = ?`,
-            [novoValor, novoValor, novoFreteId]
+            `UPDATE fretes f
+             SET custos = COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0),
+                 resultado = IFNULL(receita, 0) - COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0)
+             WHERE f.id = ?`,
+            [novoFreteId]
           );
         }
 
@@ -391,7 +408,7 @@ export class CustoController {
         return;
       }
 
-      const { valor, frete_id, pagamento_id } = custos[0];
+      const { frete_id, pagamento_id } = custos[0];
 
       if (pagamento_id !== null) {
         await connection.rollback();
@@ -405,13 +422,13 @@ export class CustoController {
       // Deleta o custo
       await connection.execute('DELETE FROM custos WHERE id = ?', [id]);
 
-      // Reverte o valor no frete relacionado
+      // Recalcula o total do frete a partir da soma real dos custos
       await connection.execute(
-        `UPDATE fretes
-         SET custos = GREATEST(0, IFNULL(custos, 0) - ?),
-             resultado = IFNULL(receita, 0) - GREATEST(0, IFNULL(custos, 0) - ?)
-         WHERE id = ?`,
-        [valor, valor, frete_id]
+        `UPDATE fretes f
+         SET custos = COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0),
+             resultado = IFNULL(receita, 0) - COALESCE((SELECT SUM(valor) FROM custos WHERE frete_id = f.id), 0)
+         WHERE f.id = ?`,
+        [frete_id]
       );
 
       await connection.commit();

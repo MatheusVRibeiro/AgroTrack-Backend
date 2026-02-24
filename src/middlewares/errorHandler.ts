@@ -5,8 +5,8 @@ export interface CustomError extends Error {
   statusCode?: number;
 }
 
-export const errorHandler = (err: Error | CustomError, _req: Request, res: Response, _next: NextFunction): void => {
-  console.error('Error:', err);
+export const errorHandler = (err: Error | CustomError, req: Request, res: Response, _next: NextFunction): void => {
+  console.error(`Error on ${req.method} ${req.originalUrl}:`, err);
 
   if (err instanceof ZodError) {
     res.status(400).json({
@@ -23,6 +23,6 @@ export const errorHandler = (err: Error | CustomError, _req: Request, res: Respo
   res.status(statusCode).json({
     success: false,
     message,
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    error: process.env.NODE_ENV === 'development' ? { message: err.message, stack: (err as Error).stack } : undefined,
   });
 };

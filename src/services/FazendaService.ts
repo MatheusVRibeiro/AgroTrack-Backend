@@ -30,35 +30,35 @@ export class FazendaService {
     }
 
     /**
+     * Recalcula os totais reais da fazenda diretamente a partir dos fretes vinculados.
+     * Use esta função quando quiser garantir consistência (evita acumulações duplicadas).
+     */
+    static async recalcularTotais(connection: Connection, fazendaId: string | number): Promise<void> {
+        await connection.execute(
+            `UPDATE fazendas f
+             SET
+               total_toneladas = COALESCE((SELECT SUM(toneladas) FROM fretes WHERE fazenda_id = f.id), 0),
+               total_sacas_carregadas = COALESCE((SELECT SUM(quantidade_sacas) FROM fretes WHERE fazenda_id = f.id), 0),
+               faturamento_total = COALESCE((SELECT SUM(receita) FROM fretes WHERE fazenda_id = f.id), 0)
+             WHERE f.id = ?`,
+            [fazendaId]
+        );
+    }
+
+    /**
      * Alterna um frete de uma fazenda para outra (usado no update do frete).
      */
     static async trocarFazendaDoFrete(
         connection: Connection,
         fazendaAnteriorId: string | number,
-        fazendaNovaId: string | number,
-        freteAtualToneladas: number,
-        freteAtualSacas: number,
-        freteAtualReceita: number,
-        freteNovoToneladas: number,
-        freteNovoSacas: number,
-        freteNovoReceita: number
+        fazendaNovaId: string | number
     ): Promise<void> {
-        // 1. Subtrai os valores antigos da fazenda anterior
-        await this.sincronizarTotais(
-            connection,
-            fazendaAnteriorId,
-            -freteAtualToneladas,
-            -freteAtualSacas,
-            -freteAtualReceita
-        );
-
-        // 2. Adiciona os novos valores na fazenda nova
-        await this.sincronizarTotais(
-            connection,
-            fazendaNovaId,
-            freteNovoToneladas,
-            freteNovoSacas,
-            freteNovoReceita
-        );
+        // Em vez de aplicar deltas (que acumulam se repetidos), recalculamos os totais
+        if (fazendaAnteriorId) {
+            await this.recalcularTotais(connection, fazendaAnteriorId);
+        }
+        if (fazendaNovaId) {
+            await this.recalcularTotais(connection, fazendaNovaId);
+        }
     }
 }

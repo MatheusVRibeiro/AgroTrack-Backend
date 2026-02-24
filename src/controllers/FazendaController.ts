@@ -39,14 +39,18 @@ export class FazendaController {
       const baseSql = `
         SELECT 
           f.*,
+          COALESCE((SELECT SUM(fr.toneladas) FROM fretes fr WHERE fr.fazenda_id = f.id), 0) as total_toneladas,
+          COALESCE((SELECT SUM(fr.quantidade_sacas) FROM fretes fr WHERE fr.fazenda_id = f.id), 0) as total_sacas_carregadas,
+          COALESCE((SELECT SUM(fr.receita) FROM fretes fr WHERE fr.fazenda_id = f.id), 0) as faturamento_total,
           (SELECT COUNT(*) FROM fretes fr WHERE fr.fazenda_id = f.id) as total_fretes_realizados,
           (SELECT COALESCE(SUM(c.valor), 0) FROM custos c
            INNER JOIN fretes fr ON c.frete_id = fr.id
            WHERE fr.fazenda_id = f.id) as total_custos_operacionais,
-          (f.faturamento_total - 
-           COALESCE((SELECT SUM(c.valor) FROM custos c 
-                     INNER JOIN fretes fr ON c.frete_id = fr.id 
-                     WHERE fr.fazenda_id = f.id), 0)
+          (
+            COALESCE((SELECT SUM(fr.receita) FROM fretes fr WHERE fr.fazenda_id = f.id), 0) -
+            COALESCE((SELECT SUM(c.valor) FROM custos c 
+                      INNER JOIN fretes fr ON c.frete_id = fr.id 
+                      WHERE fr.fazenda_id = f.id), 0)
           ) as lucro_liquido,
           (SELECT id FROM fretes fr WHERE fr.fazenda_id = f.id 
            ORDER BY fr.data_frete DESC, fr.created_at DESC LIMIT 1) as ultimo_frete_id,
@@ -112,7 +116,7 @@ export class FazendaController {
       const fazenda = fazendas[0] as Record<string, unknown>;
 
       // Buscar dados agregados em paralelo
-      const [ultimoFreteRows, totalFretesRows, totalCustosRows] = await Promise.all([
+      const [ultimoFreteRows, totalFretesRows, totalCustosRows, totaisFreteRows] = await Promise.all([
         pool.execute(
           `SELECT id, motorista_nome, caminhao_placa, origem, destino, data_frete
            FROM fretes WHERE fazenda_id = ?
@@ -126,20 +130,33 @@ export class FazendaController {
            WHERE f.fazenda_id = ?`,
           [id]
         ),
+        pool.execute(
+          `SELECT COALESCE(SUM(toneladas), 0) AS total_toneladas,
+                  COALESCE(SUM(quantidade_sacas), 0) AS total_sacas_carregadas,
+                  COALESCE(SUM(receita), 0) AS faturamento_total
+           FROM fretes WHERE fazenda_id = ?`,
+          [id]
+        ),
       ]);
 
       const ultimoFrete = (ultimoFreteRows[0] as any[])[0];
       const totalFretes = (totalFretesRows[0] as any[])[0]?.total ?? 0;
       const totalCustosOperacionais = (totalCustosRows[0] as any[])[0]?.total ?? 0;
+      const totaisFrete = (totaisFreteRows[0] as any[])[0] ?? {};
 
-      const faturamentoTotal = Number(fazenda.faturamento_total || 0);
+      const faturamentoTotal = Number(totaisFrete.faturamento_total || 0);
       const custosOperacionais = Number(totalCustosOperacionais || 0);
+
 
       res.json({
         success: true,
         message: 'Fazenda carregada com sucesso',
         data: {
           ...fazenda,
+          // Sobrescrever com valores calculados em tempo real a partir dos fretes
+          total_toneladas: Number(totaisFrete.total_toneladas || 0),
+          total_sacas_carregadas: Number(totaisFrete.total_sacas_carregadas || 0),
+          faturamento_total: faturamentoTotal,
           total_fretes_realizados: totalFretes,
           total_custos_operacionais: custosOperacionais,
           lucro_liquido: faturamentoTotal - custosOperacionais,
@@ -151,6 +168,7 @@ export class FazendaController {
           ultimo_frete_data: ultimoFrete?.data_frete || null,
         },
       } as ApiResponse<unknown>);
+
     } catch (error) {
       console.error('❌ [FAZENDAS] Erro ao obter por ID:', error);
       res.status(500).json({ success: false, message: 'Erro ao obter fazenda' } as ApiResponse<null>);

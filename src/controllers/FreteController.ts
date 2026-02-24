@@ -100,7 +100,7 @@ export class FreteController {
       const { sql: sqlRows, params } = qb.build(baseSql);
       const { sql: sqlCount } = qb.build('SELECT COUNT(*) as total FROM fretes f');
 
-      const finalSqlRows = `${sqlRows} ORDER BY f.data_frete DESC, f.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+      const finalSqlRows = `${sqlRows} ORDER BY f.id DESC LIMIT ${limit} OFFSET ${offset}`;
 
       const [rowsResult, countResult] = await Promise.all([
         pool.execute(finalSqlRows, params),
@@ -395,13 +395,7 @@ export class FreteController {
         info = result as { insertId: number };
 
         if (payload.fazenda_id) {
-          await FazendaService.sincronizarTotais(
-            connection,
-            payload.fazenda_id,
-            payload.toneladas,
-            payload.quantidade_sacas,
-            receita
-          );
+          await FazendaService.recalcularTotais(connection, payload.fazenda_id);
         }
 
         await connection.commit();
@@ -533,42 +527,19 @@ export class FreteController {
             : data.fazenda_id === null
               ? null
               : atual.fazenda_id;
-        const proximasToneladas =
-          data.toneladas !== undefined ? Number(data.toneladas) : Number(atual.toneladas || 0);
-        const proximasSacas =
-          data.quantidade_sacas !== undefined
-            ? Number(data.quantidade_sacas)
-            : Number(atual.quantidade_sacas || 0);
 
         const fazendaAnterior = atual.fazenda_id;
 
         if (fazendaAnterior && proximaFazendaId && fazendaAnterior === proximaFazendaId) {
-          // Mesma fazenda, só mudou valores
-          const deltaToneladas = proximasToneladas - Number(atual.toneladas || 0);
-          const deltaSacas = proximasSacas - Number(atual.quantidade_sacas || 0);
-          const deltaReceita = proximaReceita - Number(atual.receita || 0);
-
-          await FazendaService.sincronizarTotais(
-            connection,
-            fazendaAnterior,
-            deltaToneladas,
-            deltaSacas,
-            deltaReceita
-          );
+          // Mesma fazenda, só mudou valores — recalcula para garantir consistência
+          await FazendaService.recalcularTotais(connection, fazendaAnterior);
         } else {
-          // Fazendas diferentes
-          if (fazendaAnterior || proximaFazendaId) {
-            await FazendaService.trocarFazendaDoFrete(
-              connection,
-              fazendaAnterior || 0, // se for null passamos 0 pra não dar erro silencioso lá 
-              proximaFazendaId || 0,
-              atual.toneladas,
-              atual.quantidade_sacas,
-              atual.receita,
-              proximasToneladas,
-              proximasSacas,
-              proximaReceita
-            );
+          // Fazendas diferentes: recalcula os totais em ambas as fazendas envolvidas
+          if (fazendaAnterior) {
+            await FazendaService.recalcularTotais(connection, fazendaAnterior);
+          }
+          if (proximaFazendaId) {
+            await FazendaService.recalcularTotais(connection, proximaFazendaId);
           }
         }
 
@@ -638,13 +609,7 @@ export class FreteController {
 
       // 3. Reverter totais acumulados da fazenda (se vinculada)
       if (frete.fazenda_id) {
-        await FazendaService.sincronizarTotais(
-          connection,
-          frete.fazenda_id,
-          -frete.toneladas,
-          -frete.quantidade_sacas,
-          -frete.receita
-        );
+        await FazendaService.recalcularTotais(connection, frete.fazenda_id);
       }
 
       await connection.commit();

@@ -43,18 +43,18 @@ export class PagamentoController {
       dados_pix:
         motorista.tipo_pagamento === 'pix'
           ? {
-              tipo_chave: motorista.chave_pix_tipo || null,
-              chave: motorista.chave_pix || null,
-            }
+            tipo_chave: motorista.chave_pix_tipo || null,
+            chave: motorista.chave_pix || null,
+          }
           : null,
       dados_bancarios:
         motorista.tipo_pagamento === 'transferencia_bancaria'
           ? {
-              banco: motorista.banco || null,
-              agencia: motorista.agencia || null,
-              conta: motorista.conta || null,
-              tipo_conta: motorista.tipo_conta || null,
-            }
+            banco: motorista.banco || null,
+            agencia: motorista.agencia || null,
+            conta: motorista.conta || null,
+            tipo_conta: motorista.tipo_conta || null,
+          }
           : null,
     };
   }
@@ -81,6 +81,19 @@ export class PagamentoController {
     const ultimoNumero = parseInt(partes[2] || '0', 10) || 0;
     const proximoNumero = ultimoNumero + 1;
     return `${prefixo}${proximoNumero.toString().padStart(3, '0')}`;
+  }
+
+  // Resolve param which can be numeric `id` or a `codigo_pagamento` like PAG-2026-001
+  private async resolvePagamentoId(param: string): Promise<string | null> {
+    if (/^\d+$/.test(String(param))) return String(param);
+
+    const [rows] = await pool.execute(
+      'SELECT id FROM pagamentos WHERE codigo_pagamento = ? LIMIT 1',
+      [param]
+    );
+    const arr = rows as Array<{ id: number }>;
+    if (arr.length === 0) return null;
+    return String(arr[0].id);
   }
 
   async listar(req: Request, res: Response): Promise<void> {
@@ -169,6 +182,15 @@ export class PagamentoController {
   async obterPorId(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      const resolvedId = await this.resolvePagamentoId(id);
+      if (!resolvedId) {
+        res.status(404).json({
+          success: false,
+          message: 'Pagamento nao encontrado',
+        } as ApiResponse<null>);
+        return;
+      }
+
       const [rows] = await pool.execute(
         `SELECT 
           p.*,
@@ -186,7 +208,7 @@ export class PagamentoController {
         LEFT JOIN motoristas m ON m.id = p.motorista_id
         WHERE p.id = ?
         LIMIT 1`,
-        [id]
+        [resolvedId]
       );
       const pagamentos = rows as unknown[];
 
@@ -388,6 +410,14 @@ export class PagamentoController {
   async atualizar(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      const resolvedId = await this.resolvePagamentoId(id);
+      if (!resolvedId) {
+        res.status(404).json({
+          success: false,
+          message: 'Pagamento nao encontrado',
+        } as ApiResponse<null>);
+        return;
+      }
       if (Object.prototype.hasOwnProperty.call(req.body, 'metodo_pagamento')) {
         res.status(400).json({
           success: false,
@@ -408,7 +438,7 @@ export class PagamentoController {
       }
 
       const sql = `UPDATE pagamentos SET ${fields.join(', ')} WHERE id = ?`;
-      values.push(id);
+      values.push(resolvedId);
       const [result] = await pool.execute(sql, values);
       const info = result as { affectedRows: number };
 
@@ -437,19 +467,10 @@ export class PagamentoController {
   }
 
   async deletar(req: Request, res: Response): Promise<void> {
-    const connection = await pool.getConnection();
     try {
       const { id } = req.params;
-
-      await connection.beginTransaction();
-
-      // Verificar se o pagamento existe
-      const [pagRows] = await connection.execute(
-        'SELECT id FROM pagamentos WHERE id = ? LIMIT 1',
-        [id]
-      );
-      if ((pagRows as unknown[]).length === 0) {
-        await connection.rollback();
+      const resolvedId = await this.resolvePagamentoId(id);
+      if (!resolvedId) {
         res.status(404).json({
           success: false,
           message: 'Pagamento nao encontrado',
@@ -457,39 +478,60 @@ export class PagamentoController {
         return;
       }
 
-      // Resetar pagamento_id nos fretes vinculados
-      await connection.execute(
-        'UPDATE fretes SET pagamento_id = NULL WHERE pagamento_id = ?',
-        [id]
-      );
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
 
-      // Deletar o pagamento
-      await connection.execute('DELETE FROM pagamentos WHERE id = ?', [id]);
+        // Faz com que os fretes voltem a ficar pendentes (sem guia de pagamento associada)
+        await connection.execute(
+          'UPDATE fretes SET pagamento_id = NULL WHERE pagamento_id = ?',
+          [resolvedId]
+        );
 
-      await connection.commit();
+        // Deletar o pagamento
+        await connection.execute('DELETE FROM pagamentos WHERE id = ?', [resolvedId]);
 
-      res.json({
-        success: true,
-        message: 'Pagamento removido com sucesso',
-      } as ApiResponse<null>);
+        await connection.commit();
+
+        res.json({
+          success: true,
+          message: 'Pagamento removido. Os fretes vinculados voltaram a ficar pendentes.',
+        } as ApiResponse<null>);
+      } catch (error) {
+        await connection.rollback();
+        res.status(500).json({
+          success: false,
+          message: 'Erro ao remover pagamento',
+        } as ApiResponse<null>);
+      } finally {
+        connection.release();
+      }
     } catch (error) {
-      await connection.rollback();
+      console.error('Erro na rota deletar pagamento:', error);
       res.status(500).json({
         success: false,
-        message: 'Erro ao remover pagamento',
+        message: 'Erro ao processar solicitação de exclusão.',
       } as ApiResponse<null>);
-    } finally {
-      connection.release();
     }
   }
+
+
 
   async uploadComprovante(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
+      const resolvedId = await this.resolvePagamentoId(id);
+      if (!resolvedId) {
+        res.status(404).json({
+          success: false,
+          message: 'Pagamento não encontrado',
+        } as ApiResponse<null>);
+        return;
+      }
 
       // Verificar se o pagamento existe
       const [pagamentos] = await pool.execute('SELECT * FROM pagamentos WHERE id = ? LIMIT 1', [
-        id,
+        resolvedId,
       ]);
       const pagamentoArray = pagamentos as unknown[];
 
@@ -525,7 +567,7 @@ export class PagamentoController {
             nome_original, nome_arquivo, url, tipo_mime, tamanho,
             entidade_tipo, entidade_id
           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [originalname, filename, fileUrl, mimetype, size, 'pagamento', id]
+          [originalname, filename, fileUrl, mimetype, size, 'pagamento', resolvedId]
         );
         const insertId = result.insertId;
         // 2. Geração da sigla/código
@@ -540,7 +582,7 @@ export class PagamentoController {
             comprovante_url = ?,
             comprovante_data_upload = NOW()
           WHERE id = ?`,
-          [originalname, fileUrl, id]
+          [originalname, fileUrl, resolvedId]
         );
 
         await conn.commit();
