@@ -95,7 +95,12 @@ export class FreteController {
         .addCondition('f.data_frete >= ?', req.query.data_inicio)
         .addCondition('f.data_frete <= ?', req.query.data_fim)
         .addCondition('f.motorista_id = ?', req.query.motorista_id || req.query.proprietario_id)
-        .addCondition('f.fazenda_id = ?', req.query.fazenda_id);
+        .addCondition('f.fazenda_id = ?', req.query.fazenda_id)
+        .addCondition('f.caminhao_id = ?', req.query.caminhao_id);
+      if (req.query.search && typeof req.query.search === 'string') {
+        const searchTerm = `%${req.query.search}%`;
+        qb.addCondition('(f.origem LIKE ? OR f.destino LIKE ? OR COALESCE(f.codigo_frete, "") LIKE ? OR f.mercadoria LIKE ? OR COALESCE(f.motorista_nome, "") LIKE ?)', [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+      }
 
       const { sql: sqlRows, params } = qb.build(baseSql);
       const { sql: sqlCount } = qb.build('SELECT COUNT(*) as total FROM fretes f');
@@ -123,6 +128,70 @@ export class FreteController {
         success: false,
         message: 'Erro ao listar fretes',
       } as ApiResponse<null>);
+    }
+  }
+
+  async estatisticas(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const qb = new QueryBuilder()
+        .addCondition('f.data_frete >= ?', req.query.data_inicio)
+        .addCondition('f.data_frete <= ?', req.query.data_fim)
+        .addCondition('f.motorista_id = ?', req.query.motorista_id || req.query.proprietario_id)
+        .addCondition('f.fazenda_id = ?', req.query.fazenda_id)
+        .addCondition('f.caminhao_id = ?', req.query.caminhao_id);
+
+      if (req.query.search && typeof req.query.search === 'string') {
+        const searchTerm = `%${req.query.search}%`;
+        qb.addCondition('(f.origem LIKE ? OR f.destino LIKE ? OR COALESCE(f.codigo_frete, "") LIKE ? OR f.mercadoria LIKE ? OR COALESCE(f.motorista_nome, "") LIKE ?)', [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm]);
+      }
+
+      // 1. Estatísticas Totais Filtradas
+      const sqlTotais = `
+        SELECT 
+          COUNT(*) as total_fretes,
+          COALESCE(SUM(f.toneladas), 0) as total_toneladas,
+          COALESCE(SUM(f.quantidade_sacas), 0) as total_sacas,
+          COALESCE(SUM(f.receita), 0) as total_receita,
+          COALESCE(SUM(f.custos), 0) as total_custos
+        FROM fretes f
+      `;
+      const { sql: sqlBuildTotais, params: paramsTotais } = qb.build(sqlTotais);
+
+      // 2. Todos os períodos disponíveis unicamente (baseado na data_frete não filtrada pelo tempo, mas respeitando outros filtros se quiser. Geralmente queremos TODAS as datas existentes para o filtro funcionar).
+      const [rowsPeriodos] = await pool.execute(
+        `SELECT DISTINCT DATE_FORMAT(data_frete, '%Y-%m') as periodo FROM fretes WHERE data_frete IS NOT NULL ORDER BY periodo ASC`
+      );
+
+      const [rowsTotais] = await pool.execute(sqlBuildTotais, paramsTotais);
+
+      const totais = (rowsTotais as any[])[0] || {
+        total_fretes: 0,
+        total_toneladas: 0,
+        total_sacas: 0,
+        total_receita: 0,
+        total_custos: 0,
+      };
+
+      const periodos_disponiveis = (rowsPeriodos as any[]).map(r => r.periodo);
+
+      res.json({
+        success: true,
+        message: 'Estatisticas carregadas',
+        data: {
+          totais: {
+            total_fretes: Number(totais.total_fretes),
+            total_toneladas: Number(totais.total_toneladas),
+            total_sacas: Number(totais.total_sacas),
+            total_receita: Number(totais.total_receita),
+            total_custos: Number(totais.total_custos),
+            lucro: Number(totais.total_receita) - Number(totais.total_custos),
+          },
+          periodos_disponiveis
+        }
+      });
+    } catch (error) {
+      console.error('❌ [FRETES] Erro ao carregar estatisticas:', error);
+      res.status(500).json({ success: false, message: 'Erro ao carregar estatisticas' });
     }
   }
 
