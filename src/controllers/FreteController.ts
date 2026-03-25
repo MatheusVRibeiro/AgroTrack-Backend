@@ -409,6 +409,19 @@ export class FreteController {
         return;
       }
 
+      if (payload.ticket) {
+        const [existingTicket] = await pool.execute('SELECT id FROM fretes WHERE ticket = ? LIMIT 1', [payload.ticket]);
+        const records = existingTicket as unknown[];
+        if (records.length > 0) {
+          res.status(400).json({
+            success: false,
+            message: 'Já existe um frete cadastrado com este ticket. O ticket deve ser único para evitar erros.',
+            field: 'ticket',
+          } as ApiResponse<null>);
+          return;
+        }
+      }
+
       const receita =
         payload.receita !== undefined
           ? payload.receita
@@ -532,6 +545,19 @@ export class FreteController {
           field: 'caminhao_id',
         } as ApiResponse<null>);
         return;
+      }
+
+      if (data.ticket) {
+        const [existingTicket] = await pool.execute('SELECT id FROM fretes WHERE ticket = ? AND id != ? LIMIT 1', [data.ticket, id]);
+        const records = existingTicket as unknown[];
+        if (records.length > 0) {
+          res.status(400).json({
+            success: false,
+            message: 'Já existe outro frete cadastrado com este ticket. O ticket deve ser único para evitar erros.',
+            field: 'ticket',
+          } as ApiResponse<null>);
+          return;
+        }
       }
 
       const connection = await pool.getConnection();

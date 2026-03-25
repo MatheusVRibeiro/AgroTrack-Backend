@@ -31,7 +31,14 @@ const FROTA_FIELDS = [
 export class FrotaController {
   async listar(_req: Request, res: Response): Promise<void> {
     try {
-        const { page, limit, offset } = getPagination(_req.query as Record<string, unknown>);
+        let { page, limit, offset } = getPagination(_req.query as Record<string, unknown>);
+        // Se a requisição não definiu um limite explícito, vamos aumentar o limite padrão para evitar
+        // que listas de caminhões fiquem incompletas (ex: motorista com 12 caminhões só aparecendo 10)
+        if (limit === 10 && !_req.query.limit) {
+          limit = 100;
+          offset = (page - 1) * limit;
+        }
+
         // support query ?vagos=1 to list only vehicles without a fixed driver
         if (_req.query.vagos === '1' || _req.query.vagos === 'true') {
           const sqlVagos = `SELECT id, placa, modelo, ano_fabricacao FROM frota WHERE motorista_fixo_id IS NULL ORDER BY placa ASC LIMIT ${limit} OFFSET ${offset}`;
