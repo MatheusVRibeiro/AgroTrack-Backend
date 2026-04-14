@@ -7,15 +7,20 @@ const authController = new AuthController();
 
 // Aplica rate limiter especificamente na rota de login
 router.post('/login', loginLimiter, (req, res) => authController.login(req, res));
-router.post('/registrar', (req, res) => authController.registrar(req, res));
+router.post('/registrar', defaultLimiter, (req, res) => authController.registrar(req, res));
+
+// Refresh token (aceita cookie HttpOnly ou body)
+router.post('/refresh', defaultLimiter, (req, res) => authController.refreshToken(req, res));
+
+// Logout (limpa cookies HttpOnly)
+router.post('/logout', (req, res) => authController.logout(req, res));
 
 // Rotas de recuperação de senha (rate limited para evitar spam)
-// Em português para consistência com a aplicação
 router.post('/recuperar-senha', defaultLimiter, (req, res) => authController.forgotPassword(req, res));
-router.post('/redefinir-senha', (req, res) => authController.resetPassword(req, res));
+router.post('/redefinir-senha', defaultLimiter, (req, res) => authController.resetPassword(req, res));
 
 // Aliases em inglês para compatibilidade (deprecated)
 router.post('/forgot-password', defaultLimiter, (req, res) => authController.forgotPassword(req, res));
-router.post('/reset-password', (req, res) => authController.resetPassword(req, res));
+router.post('/reset-password', defaultLimiter, (req, res) => authController.resetPassword(req, res));
 
 export default router;

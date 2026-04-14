@@ -1,10 +1,13 @@
 import { Request } from 'express';
 
+export type UserRole = 'admin' | 'contabilidade' | 'operador' | 'motorista';
+
 export interface AuthRequest extends Request {
   userId?: string;
   user?: {
     id: string;
     email: string;
+    role: UserRole;
   };
 }
 

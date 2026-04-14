@@ -32,36 +32,25 @@ const FRETE_FIELDS = [
 ];
 
 export class FreteController {
-  private async backfillCodigosFrete(): Promise<void> {
-    await pool.execute(
-      `UPDATE fretes
-       SET codigo_frete = CONCAT('FRT-', YEAR(COALESCE(created_at, NOW())), '-', LPAD(id, 3, '0'))
-       WHERE codigo_frete IS NULL OR codigo_frete = ''`
-    );
-  }
-
   // Gerar próximo código sequencial de frete (FRT-2026-001, FRT-2026-002...)
   private async gerarProximoCodigoFrete(): Promise<string> {
     const anoAtual = new Date().getFullYear();
     const prefixo = `FRT-${anoAtual}-`;
 
     try {
-      // Buscar o último código de frete do ano atual
+      // Usa MAX() com CAST numérico — evita o bug de ordenação alfabética (ex: '999' > '1000')
       const [rows] = await pool.execute(
-        `SELECT codigo_frete FROM fretes WHERE codigo_frete LIKE ? ORDER BY codigo_frete DESC LIMIT 1`,
+        `SELECT MAX(CAST(SUBSTRING_INDEX(codigo_frete, '-', -1) AS UNSIGNED)) AS ultimo_seq
+         FROM fretes
+         WHERE codigo_frete LIKE ?`,
         [`${prefixo}%`]
       );
 
-      const fretes = rows as Array<{ codigo_frete: string | null }>;
-
-      if (fretes.length === 0) {
-        return `${prefixo}001`;
-      }
-
-      const ultimoCodigo = fretes[0].codigo_frete || '';
-      const ultimoNumero = parseInt(ultimoCodigo.split('-')[2] || '0', 10);
+      const resultado = rows as Array<{ ultimo_seq: number | null }>;
+      const ultimoNumero = Number(resultado[0]?.ultimo_seq ?? 0);
       const proximoNumero = ultimoNumero + 1;
 
+      // Padding de 3 dígitos até 999, depois cresce normalmente (1000, 1001...)
       return `${prefixo}${proximoNumero.toString().padStart(3, '0')}`;
     } catch (error) {
       // Se a coluna codigo_frete não existir, usar um ID baseado em timestamp
@@ -73,7 +62,6 @@ export class FreteController {
 
   async listar(req: AuthRequest, res: Response): Promise<void> {
     try {
-      await this.backfillCodigosFrete();
       const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
 
       const baseSql = `
@@ -337,7 +325,6 @@ export class FreteController {
 
   async obterPorId(req: AuthRequest, res: Response): Promise<void> {
     try {
-      await this.backfillCodigosFrete();
       const { id } = req.params;
 
       const [rows] = await pool.execute(`
@@ -498,14 +485,27 @@ export class FreteController {
         return;
       }
 
-      // Tratamento especial para colunas faltantes
+      // Tratamento especial para colunas faltantes no schema
       const errorMsg = (error as Error).message || '';
-      if (errorMsg.includes('Unknown column') || errorMsg.includes('codigo_frete') || errorMsg.includes('numero_nota_fiscal')) {
-        console.warn('⚠️ [FRETES][CRIAR] Colunas novas não encontradas. Use o comando ALTER TABLE para adicionar.');
+      const isUniqueViolation = errorMsg.includes('Duplicate entry') || errorMsg.includes('ER_DUP_ENTRY');
+      const isMissingColumn = !isUniqueViolation && (errorMsg.includes('Unknown column') || errorMsg.includes('numero_nota_fiscal'));
+
+      if (isMissingColumn) {
+        console.warn('⚠️ [FRETES][CRIAR] Colunas novas não encontradas. Execute a migration.');
         res.status(400).json({
           success: false,
           message: 'Banco de dados não tem as colunas necessárias. Execute a migration em src/database/migration_add_missing_columns.sql',
           code: 'DB_SCHEMA_OUTDATED'
+        });
+        return;
+      }
+
+      if (isUniqueViolation && errorMsg.includes('codigo_frete')) {
+        console.error('⚠️ [FRETES][CRIAR] Conflito de codigo_frete (possível bug de sequência):', errorMsg);
+        res.status(409).json({
+          success: false,
+          message: 'Conflito ao gerar código do frete. Tente novamente.',
+          code: 'CODIGO_FRETE_CONFLICT'
         });
         return;
       }

@@ -27,7 +27,7 @@ export class UsuarioController {
       const { page, limit, offset } = getPagination(req.query as Record<string, unknown>);
       const [rowsResult, countResult] = await Promise.all([
         pool.execute(
-          `SELECT id, nome, email, role, ativo, telefone, documento, created_at, updated_at FROM usuarios ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`
+          `SELECT id, codigo_usuario, nome, email, role, ativo, telefone, documento, ultimo_acesso, bloqueado_ate, tentativas_login_falhas, created_at, updated_at FROM usuarios ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`
         ),
         pool.execute('SELECT COUNT(*) as total FROM usuarios'),
       ]);
@@ -52,7 +52,7 @@ export class UsuarioController {
     try {
       const { id } = req.params;
       const [rows] = await pool.execute(
-        'SELECT id, nome, email, role, ativo, telefone, documento, created_at, updated_at FROM usuarios WHERE id = ? LIMIT 1',
+        'SELECT id, codigo_usuario, nome, email, role, ativo, telefone, documento, ultimo_acesso, bloqueado_ate, tentativas_login_falhas, created_at, updated_at FROM usuarios WHERE id = ? LIMIT 1',
         [id]
       );
 

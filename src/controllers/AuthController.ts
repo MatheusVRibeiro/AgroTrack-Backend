@@ -2,20 +2,23 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import pool from '../database/connection';
-import { generateToken } from '../middlewares/auth';
+import { generateToken, generateRefreshToken, setAuthCookies, clearAuthCookies } from '../middlewares/auth';
 import { CriarUsuarioSchema, LoginSchema } from '../utils/validators';
 import { sendValidationError } from '../utils/validation';
 import { sendResetPasswordEmail, sendPasswordResetSuccessEmail } from '../services/EmailService';
 import { ApiResponse } from '../types';
+import { sanitizeEmail, sanitizeText, sanitizePayload } from '../utils/sanitize';
+import jwt from 'jsonwebtoken';
+import type { JwtPayload, UserRole } from '../middlewares/auth';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'seu_secret_key_aqui';
 
 export class AuthController {
   async registrar(req: Request, res: Response): Promise<void> {
     try {
-      console.log('📝 [REGISTER] Requisição recebida');
-      console.log('📦 [REGISTER] Body:', JSON.stringify(req.body));
-      
-      const data = CriarUsuarioSchema.parse(req.body);
-      console.log('✅ [REGISTER] Validação Zod passou - Email:', data.email);
+      // Sanitizar body antes da validação
+      const sanitizedBody = sanitizePayload(req.body as Record<string, unknown>);
+      const data = CriarUsuarioSchema.parse(sanitizedBody);
 
       const [existingRows] = await pool.execute(
         'SELECT id FROM usuarios WHERE email = ? LIMIT 1',
@@ -23,10 +26,8 @@ export class AuthController {
       );
 
       const existing = existingRows as { id: string }[];
-      console.log('🔍 [REGISTER] Email já existe:', existing.length > 0);
       
       if (existing.length > 0) {
-        console.log('⚠️ [REGISTER] Email já cadastrado:', data.email);
         res.status(409).json({
           success: false,
           message: 'Email ja cadastrado',
@@ -34,35 +35,30 @@ export class AuthController {
         return;
       }
 
-      console.log('🔐 [REGISTER] Gerando hash da senha...');
-      const senhaHash = await bcrypt.hash(data.senha, 10);
-      // Usar transação para garantir atomicidade
+      const senhaHash = await bcrypt.hash(data.senha, 12); // Aumentado de 10 para 12 rounds
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
 
-        // 1. INSERT sem ID manual
         const insertSql = `INSERT INTO usuarios (
           nome, email, senha_hash, role, ativo
         ) VALUES (?, ?, ?, ?, ?)`;
         const insertParams = [
-          data.nome,
-          data.email,
+          sanitizeText(data.nome, 200),
+          sanitizeEmail(data.email),
           senhaHash,
-          'operador', // padrão
+          'operador',
           true
         ];
         const [result]: any = await conn.execute(insertSql, insertParams);
         const insertId = result.insertId;
 
-        // 2. Geração da sigla/código (campo `codigo_usuario`)
         const ano = new Date().getFullYear();
         const codigo = `USR-${ano}-${String(insertId).padStart(3, '0')}`;
         await conn.execute('UPDATE usuarios SET codigo_usuario = ? WHERE id = ?', [codigo, insertId]);
 
         await conn.commit();
 
-        console.log('🆔 [REGISTER] ID gerado:', codigo);
         res.status(201).json({
           success: true,
           id: codigo
@@ -70,7 +66,6 @@ export class AuthController {
         return;
       } catch (txError) {
         await conn.rollback();
-        console.error('[REGISTER][ERRO TRANSACTION]', txError);
         res.status(500).json({
           success: false,
           message: 'Erro ao registrar usuário (transação).'
@@ -79,14 +74,11 @@ export class AuthController {
       } finally {
         conn.release();
       }
-
-      // ...código novo já retorna o id/código na resposta acima...
     } catch (error) {
       if (sendValidationError(res, error)) {
         return;
       }
 
-      console.error('💥 [REGISTER] Erro inesperado:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao registrar usuario',
@@ -96,17 +88,13 @@ export class AuthController {
 
   async login(req: Request, res: Response): Promise<void> {
     try {
-      console.log('🔐 [LOGIN] Requisição recebida');
-      console.log('📦 [LOGIN] Body:', JSON.stringify(req.body));
-      
       const data = LoginSchema.parse(req.body);
-      console.log('✅ [LOGIN] Validação Zod passou - Email:', data.email);
 
-      // Normalizar email para evitar divergências por espaços/maiúsculas
-      const email = String(data.email).trim().toLowerCase();
+      // Sanitizar o email
+      const email = sanitizeEmail(data.email);
 
       const [rows] = await pool.execute(
-        'SELECT id, nome, email, senha_hash, tentativas_login_falhas, bloqueado_ate, ativo FROM usuarios WHERE email = ? LIMIT 1',
+        'SELECT id, nome, email, senha_hash, role, tentativas_login_falhas, bloqueado_ate, ativo FROM usuarios WHERE email = ? LIMIT 1',
         [email]
       );
 
@@ -115,13 +103,13 @@ export class AuthController {
         nome: string;
         email: string;
         senha_hash: string;
+        role: UserRole;
         tentativas_login_falhas: number;
         bloqueado_ate: Date | null;
+        ativo?: number;
       }>;
-      console.log('🔍 [LOGIN] Usuários encontrados:', users.length);
       
       if (users.length === 0) {
-        console.log('❌ [LOGIN] Usuário não encontrado:', data.email);
         res.status(401).json({
           success: false,
           message: 'Credenciais invalidas',
@@ -130,9 +118,7 @@ export class AuthController {
       }
 
       const user = users[0];
-      // Garantir que o usuário exista e tenha hash de senha
       if (!user || !user.senha_hash) {
-        console.log('❌ [LOGIN] Usuário sem hash de senha ou inexistente:', email);
         res.status(401).json({
           success: false,
           message: 'Credenciais invalidas',
@@ -142,18 +128,13 @@ export class AuthController {
 
       // Rejeitar usuários inativos
       if ('ativo' in user && user.ativo === 0) {
-        console.log('🔒 [LOGIN] Tentativa de login em usuário inativo:', email);
         res.status(403).json({ success: false, message: 'Conta inativa' } as ApiResponse<null>);
         return;
       }
-      console.log('👤 [LOGIN] Usuário encontrado:', { id: user.id, email: user.email, nome: user.nome });
-      console.log('🔒 [LOGIN] Tentativas falhas:', user.tentativas_login_falhas);
-      console.log('🔒 [LOGIN] Bloqueado até:', user.bloqueado_ate);
       
       // Verificar se está bloqueado
       if (user.bloqueado_ate && new Date(user.bloqueado_ate) > new Date()) {
         const minutosRestantes = Math.ceil((new Date(user.bloqueado_ate).getTime() - Date.now()) / 60000);
-        console.log('⛔ [LOGIN] Usuário bloqueado. Minutos restantes:', minutosRestantes);
         res.status(403).json({
           success: false,
           message: `Conta bloqueada. Tente novamente em ${minutosRestantes} minuto(s).`,
@@ -161,22 +142,16 @@ export class AuthController {
         return;
       }
       
-      console.log('🔑 [LOGIN] Comparando senha...');
       let valid = false;
       try {
         valid = await bcrypt.compare(data.senha, user.senha_hash);
       } catch (cmpErr) {
-        console.error('⚠️ [LOGIN] Erro ao comparar senhas:', cmpErr);
         valid = false;
       }
-      console.log('🔑 [LOGIN] Senha válida:', valid);
 
       if (!valid) {
-        console.log('❌ [LOGIN] Senha incorreta para:', data.email);
-        
         // Incrementar tentativas
         const novasTentativas = user.tentativas_login_falhas + 1;
-        console.log('⚠️ [LOGIN] Incrementando tentativas para:', novasTentativas);
         
         // Bloquear se atingir 8 tentativas
         if (novasTentativas >= 8) {
@@ -184,7 +159,6 @@ export class AuthController {
             'UPDATE usuarios SET tentativas_login_falhas = ?, bloqueado_ate = DATE_ADD(NOW(), INTERVAL 15 MINUTE) WHERE id = ?',
             [novasTentativas, user.id]
           );
-          console.log('🚫 [LOGIN] Conta bloqueada por 15 minutos após 8 tentativas');
           res.status(403).json({
             success: false,
             message: 'Conta bloqueada por 15 minutos devido a múltiplas tentativas falhas.',
@@ -196,7 +170,6 @@ export class AuthController {
             [novasTentativas, user.id]
           );
           const tentativasRestantes = 8 - novasTentativas;
-          console.log('⚠️ [LOGIN] Tentativas restantes:', tentativasRestantes);
           res.status(401).json({
             success: false,
             message: `Credenciais inválidas. ${tentativasRestantes} tentativa(s) restante(s).`,
@@ -205,25 +178,33 @@ export class AuthController {
         }
       }
 
-      const token = generateToken(user.id, user.email);
-      console.log('🎫 [LOGIN] Token gerado com sucesso (15 dias)');
+      // Role do usuário (fallback para 'admin' se campo não existe no banco)
+      const userRole: UserRole = user.role || 'admin';
+
+      // Gerar tokens com role incluída
+      const token = generateToken(user.id, user.email, userRole);
+      const refreshToken = generateRefreshToken(user.id, user.email, userRole);
       
       // Resetar tentativas de login e remover bloqueio
       await pool.execute(
         'UPDATE usuarios SET tentativas_login_falhas = 0, bloqueado_ate = NULL, ultimo_acesso = NOW() WHERE id = ?',
         [user.id]
       );
-      console.log('✅ [LOGIN] Login realizado com sucesso para:', user.email);
-      console.log('🔓 [LOGIN] Tentativas resetadas e bloqueio removido');
 
+      // Configurar cookies HttpOnly
+      setAuthCookies(res, token, refreshToken);
+
+      // Também retornar tokens no body para compatibilidade com mobile/frontend atual
       res.json({
         success: true,
         message: 'Login realizado com sucesso',
         token,
+        refreshToken,
         usuario: {
           id: user.id,
           nome: user.nome,
           email: user.email,
+          role: userRole,
         },
       });
     } catch (error) {
@@ -231,7 +212,6 @@ export class AuthController {
         return;
       }
 
-      console.error('💥 [LOGIN] Erro inesperado:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao realizar login',
@@ -240,14 +220,97 @@ export class AuthController {
   }
 
   /**
+   * Refresh token — renova o access token usando o refresh token.
+   */
+  async refreshToken(req: Request, res: Response): Promise<void> {
+    try {
+      // Tentar ler refresh token do cookie ou do body
+      const refreshTokenValue = req.cookies?.refreshToken || req.body?.refreshToken;
+
+      if (!refreshTokenValue) {
+        res.status(401).json({
+          success: false,
+          message: 'Refresh token não fornecido',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      try {
+        const decoded = jwt.verify(refreshTokenValue, JWT_SECRET) as JwtPayload & { type?: string };
+
+        if (decoded.type !== 'refresh') {
+          res.status(401).json({
+            success: false,
+            message: 'Token inválido (não é um refresh token)',
+          } as ApiResponse<null>);
+          return;
+        }
+
+        // Verificar se o usuário ainda existe e está ativo
+        const [rows] = await pool.execute(
+          'SELECT id, email, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
+          [decoded.id]
+        );
+        const users = rows as Array<{ id: string; email: string; role: UserRole; ativo?: number }>;
+        
+        if (users.length === 0 || users[0].ativo === 0) {
+          clearAuthCookies(res);
+          res.status(401).json({
+            success: false,
+            message: 'Sessão expirada',
+          } as ApiResponse<null>);
+          return;
+        }
+
+        const user = users[0];
+        const userRole: UserRole = user.role || 'admin';
+
+        // Gerar novo access token
+        const newToken = generateToken(user.id, user.email, userRole);
+        const newRefreshToken = generateRefreshToken(user.id, user.email, userRole);
+
+        // Atualizar cookies
+        setAuthCookies(res, newToken, newRefreshToken);
+
+        res.json({
+          success: true,
+          message: 'Token renovado com sucesso',
+          token: newToken,
+          refreshToken: newRefreshToken,
+        });
+      } catch (jwtError) {
+        clearAuthCookies(res);
+        res.status(401).json({
+          success: false,
+          message: 'Refresh token expirado ou inválido',
+        } as ApiResponse<null>);
+      }
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao renovar sessão',
+      } as ApiResponse<null>);
+    }
+  }
+
+  /**
+   * Logout — limpa cookies de autenticação.
+   */
+  async logout(_req: Request, res: Response): Promise<void> {
+    clearAuthCookies(res);
+    res.json({
+      success: true,
+      message: 'Logout realizado com sucesso',
+    });
+  }
+
+  /**
    * Solicitar recuperação de senha via email
    */
   async forgotPassword(req: Request, res: Response): Promise<void> {
     try {
-      console.log('📧 [FORGOT PASSWORD] Requisição recebida');
       const { email } = req.body;
 
-      // Validação básica
       if (!email || typeof email !== 'string') {
         res.status(400).json({
           success: false,
@@ -256,13 +319,14 @@ export class AuthController {
         return;
       }
 
-      // Procurar usuário
-      const [rows] = await pool.execute('SELECT id, nome, email FROM usuarios WHERE email = ? LIMIT 1', [email]);
+      // Sanitizar email
+      const cleanEmail = sanitizeEmail(email);
+
+      const [rows] = await pool.execute('SELECT id, nome, email FROM usuarios WHERE email = ? LIMIT 1', [cleanEmail]);
       const usuarios = rows as Array<{ id: number; nome: string; email: string }>;
 
       if (usuarios.length === 0) {
         // Por segurança, não revelar se o email existe ou não
-        console.log('⚠️ [FORGOT PASSWORD] Email não encontrado:', email);
         res.json({
           success: true,
           message: 'Se o email estiver registrado, você receberá um link de recuperação em breve.',
@@ -271,13 +335,10 @@ export class AuthController {
       }
 
       const usuario = usuarios[0];
-      console.log('✅ [FORGOT PASSWORD] Usuário encontrado:', usuario.email);
 
       // Gerar token de recuperação (40 caracteres randômicos em hexadecimal)
       const tokenRecuperacao = randomBytes(20).toString('hex');
       const tokenExpiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
-
-      console.log('🔑 [FORGOT PASSWORD] Token gerado. Expira em:', tokenExpiresAt);
 
       // Armazenar token no banco
       await pool.execute(
@@ -287,15 +348,11 @@ export class AuthController {
         [tokenRecuperacao, tokenExpiresAt, usuario.id]
       );
 
-      console.log('💾 [FORGOT PASSWORD] Token armazenado no banco');
-
       // Enviar email
       try {
         await sendResetPasswordEmail(usuario.email, tokenRecuperacao, usuario.nome);
-        console.log('📧 [FORGOT PASSWORD] Email enviado com sucesso');
       } catch (emailError) {
-        console.error('💥 [FORGOT PASSWORD] Erro ao enviar email:', emailError);
-        // Mesmo com erro de email, responder que enviamos (não revelar détalhes)
+        // Mesmo com erro de email, responder que enviamos
       }
 
       res.json({
@@ -303,7 +360,6 @@ export class AuthController {
         message: 'Se o email estiver registrado, você receberá um link de recuperação em breve.',
       } as ApiResponse<null>);
     } catch (error) {
-      console.error('💥 [FORGOT PASSWORD] Erro inesperado:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao processar recuperação de senha',
@@ -316,10 +372,8 @@ export class AuthController {
    */
   async resetPassword(req: Request, res: Response): Promise<void> {
     try {
-      console.log('🔐 [RESET PASSWORD] Requisição recebida');
       const { token, novaSenha, confirmaSenha } = req.body;
 
-      // Validação básica
       if (!token || !novaSenha || !confirmaSenha) {
         res.status(400).json({
           success: false,
@@ -328,7 +382,6 @@ export class AuthController {
         return;
       }
 
-      // Validar senhas
       if (novaSenha !== confirmaSenha) {
         res.status(400).json({
           success: false,
@@ -337,7 +390,6 @@ export class AuthController {
         return;
       }
 
-      // Validar força da senha - mínimo 6 caracteres
       if (novaSenha.length < 6) {
         res.status(400).json({
           success: false,
@@ -346,19 +398,20 @@ export class AuthController {
         return;
       }
 
-      // Procurar usuário com token válido
+      // Sanitizar o token para evitar injeção
+      const cleanToken = sanitizeText(token, 100);
+
       const [rows] = await pool.execute(
         `SELECT id, nome, email FROM usuarios 
          WHERE token_recuperacao = ? 
          AND token_expiracao > NOW()
          LIMIT 1`,
-        [token]
+        [cleanToken]
       );
 
       const usuarios = rows as Array<{ id: number; nome: string; email: string }>;
 
       if (usuarios.length === 0) {
-        console.log('❌ [RESET PASSWORD] Token inválido ou expirado');
         res.status(400).json({
           success: false,
           message: 'Token inválido ou expirado. Solicite uma nova recuperação.',
@@ -367,13 +420,9 @@ export class AuthController {
       }
 
       const usuario = usuarios[0];
-      console.log('✅ [RESET PASSWORD] Token válido para usuário:', usuario.email);
 
-      // Hash da nova senha
-      console.log('🔐 [RESET PASSWORD] Gerando hash da nova senha...');
-      const senhaHash = await bcrypt.hash(novaSenha, 10);
+      const senhaHash = await bcrypt.hash(novaSenha, 12);
 
-      // Atualizar senha e limpar token
       await pool.execute(
         `UPDATE usuarios 
          SET senha_hash = ?, token_recuperacao = NULL, token_expiracao = NULL
@@ -381,15 +430,11 @@ export class AuthController {
         [senhaHash, usuario.id]
       );
 
-      console.log('✅ [RESET PASSWORD] Senha atualizada com sucesso');
-
       // Enviar email de confirmação
       try {
         await sendPasswordResetSuccessEmail(usuario.email, usuario.nome);
-        console.log('📧 [RESET PASSWORD] Email de confirmação enviado');
       } catch (emailError) {
-        console.error('⚠️ [RESET PASSWORD] Erro ao enviar email de confirmação:', emailError);
-        // Continuar mesmo se falhar, pois a senha já foi alterada
+        // Continuar mesmo se falhar
       }
 
       res.json({
@@ -401,7 +446,6 @@ export class AuthController {
         return;
       }
 
-      console.error('💥 [RESET PASSWORD] Erro inesperado:', error);
       res.status(500).json({
         success: false,
         message: 'Erro ao redefinir senha',
@@ -409,4 +453,3 @@ export class AuthController {
     }
   }
 }
-
