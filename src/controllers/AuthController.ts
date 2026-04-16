@@ -452,4 +452,33 @@ export class AuthController {
       } as ApiResponse<null>);
     }
   }
+
+  /**
+   * Retorna os dados do usuário autenticado (Who Am I)
+   */
+  async me(req: Request, res: Response): Promise<void> {
+    try {
+      // O usuário já foi injetado pelo authMiddleware via cookie HttpOnly ou header
+      const user = (req as any).user;
+
+      if (!user) {
+        res.status(401).json({
+          success: false,
+          message: 'Sessão inválida ou expirada',
+        } as ApiResponse<null>);
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: 'Identidade verificada com sucesso',
+        usuario: user,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: 'Erro ao verificar identidade',
+      } as ApiResponse<null>);
+    }
+  }
 }

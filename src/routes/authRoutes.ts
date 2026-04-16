@@ -2,8 +2,13 @@ import { Router } from 'express';
 import { AuthController } from '../controllers';
 import { loginLimiter, defaultLimiter } from '../middlewares/rateLimiter';
 
+import { authMiddleware } from '../middlewares/auth';
+
 const router = Router();
 const authController = new AuthController();
+
+// Verifica identidade (Who Am I) — Aceita cookie HttpOnly
+router.get('/me', authMiddleware, (req, res) => authController.me(req, res));
 
 // Aplica rate limiter especificamente na rota de login
 router.post('/login', loginLimiter, (req, res) => authController.login(req, res));
