@@ -35,7 +35,11 @@ export class QueryBuilder {
   addCondition(condition: string, value: unknown): this {
     if (value !== undefined && value !== null && value !== '') {
       this.whereClauses.push(condition);
-      this.params.push(value);
+      if (Array.isArray(value)) {
+        this.params.push(...value);
+      } else {
+        this.params.push(value);
+      }
     }
     return this;
   }

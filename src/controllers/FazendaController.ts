@@ -71,6 +71,14 @@ export class FazendaController {
       // Adicionar filtros caso existam no futuro (ex: f.estado = ?)
       if (req.query.estado) qb.addCondition('f.estado = ?', req.query.estado);
       if (req.query.mercadoria) qb.addCondition('f.mercadoria = ?', req.query.mercadoria);
+      
+      if (req.query.search) {
+        const term = `%${req.query.search}%`;
+        qb.addCondition(
+          '(f.fazenda LIKE ? OR f.proprietario LIKE ? OR f.mercadoria LIKE ? OR f.codigo_fazenda LIKE ?)',
+          [term, term, term, term]
+        );
+      }
 
       const { sql: sqlRows, params } = qb.build(baseSql);
       const { sql: sqlCount } = qb.build('SELECT COUNT(*) as total FROM fazendas f');
